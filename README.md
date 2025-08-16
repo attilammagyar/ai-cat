@@ -17,7 +17,8 @@ Its features include:
  * Simple Markdown-based syntax.
 
  * Allows editing the entire conversation, including the AI's responses.
-   (Useful for nudging the autoregressive text generation process.)
+   (Useful for steering and nudging the autoregressive text generation
+   process.)
 
  * Works as a standalone interactive CLI app or as a standard Unix filter
    (when invoked as `ai-cat.py stdio`) that can be integrated with editors like
