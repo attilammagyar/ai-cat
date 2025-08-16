@@ -32,6 +32,10 @@ Its features include:
     * [Perplexity](https://www.perplexity.ai/),
     * and [xAI](https://x.ai/).
 
+### Dependencies
+
+None. Only built-in Python modules.
+
 ### Setting up ai-cat.py
 
 To use `ai-cat.py`, you need to generate an API key for at least one of the
