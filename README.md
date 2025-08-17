@@ -79,7 +79,7 @@ Setting up ai-cat.py before the first use
 -----------------------------------------
 
 To use `ai-cat.py`, you need to generate an API key for at least one of the
-supported AI providers, and save it in `~/.ai-py` in the following format
+supported AI providers, and save it in `~/.ai-cat` in the following format
 (delete the ones that you don't want to use):
 
     {
@@ -93,7 +93,7 @@ supported AI providers, and save it in `~/.ai-py` in the following format
       }
     }
 
-Alternatively, you can leave the `api_keys` field empty in `~/.ai-py`, and
+Alternatively, you can leave the `api_keys` field empty in `~/.ai-cat`, and
 provide the API keys via the following environment variables as well:
 
  * `ANTHROPIC_API_KEY`,

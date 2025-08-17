@@ -59,7 +59,7 @@ import urllib.parse
 
 HOME_DIR_NAME = os.path.expanduser("~")
 
-STATE_FILE_NAME = os.path.expanduser(os.path.join("~", ".ai-py"))
+STATE_FILE_NAME = os.path.expanduser(os.path.join("~", ".ai-cat"))
 
 MODELS_CACHE_TTL_SECONDS = 3 * 24 * 60 * 60
 
@@ -1970,7 +1970,7 @@ def save_state(
     }
 
     new_state_file = tempfile.NamedTemporaryFile(
-        prefix="_ai-py",
+        prefix="_ai-cat-",
         dir=os.path.dirname(STATE_FILE_NAME),
         mode="w+",
         delete=False,
