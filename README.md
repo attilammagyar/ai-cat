@@ -1,25 +1,56 @@
 ai-cat.py
 =========
 
-`ai-cat.py` is a command-line API client application to access a few popular
-[LLM](https://en.wikipedia.org/wiki/Large_language_model) providers solving
-most of my complaints against existing tools (see below).
+A simple and stupid, [Vim](https://www.vim.org/)-friendly,
+[Markdown](https://en.wikipedia.org/wiki/Markdown)-based command-line client
+for popular [LLM](https://en.wikipedia.org/wiki/Large_language_model) AI
+chatbot APIs.
 
-Its features include:
+    $ ai-cat.py <<EOF
+    # === System ===
 
- * A system prompt which sets up a sassy, wisecracking AI assistant that has a
-   knack for programming and [STEM](https://en.wikipedia.org/wiki/Science,_technology,_engineering,_and_mathematics)
+    Please act as a helpful AI assistant.
+
+    # === Settings ===
+
+    Model: openai/gpt-4.1
+
+    # === User ===
+
+    Please explain in a brief sentence why the sky is blue.
+
+    # === AI ===
+
+    The sky is blue because molecules in the Earth's atmosphere scatter
+    shorter-wavelength blue light from the sun more than they scatter
+    longer-wavelength red light.
+
+    # === User ===
+
+    Say that again but talk like a pirate.
+
+    EOF
+
+(`ai-cat` as in the name of the Unix/Linux tool
+[cat](https://en.wikipedia.org/wiki/Cat_%28Unix%29), because it
+_concatenates_ the AI's response to the end of the given conversation.)
+
+Features
+--------
+
+ * A default system prompt which sets up a sassy, wisecracking AI assistant
+   that has a knack for programming and [STEM](https://en.wikipedia.org/wiki/Science,_technology,_engineering,_and_mathematics)
    problem solving.
 
  * Precise control over model selection,
    [sampling temperature](https://en.wikipedia.org/wiki/Softmax_function),
-   reasoning, etc. (Can switch models even in the middle of a conversation.)
+   reasoning, etc. Can switch models even in the middle of a conversation.
 
- * Allows editing the entire conversation, including the AI's responses.
-   (Useful for steering and nudging the autoregressive text generation
-   process.)
+ * Allows editing the entire conversation, including the AI's responses, which
+   is useful for steering and nudging the autoregressive text generation
+   process if necessary.
 
- * Simple Markdown-based syntax.
+ * Simple, Markdown-based syntax.
 
  * Works as a standalone interactive CLI app or as a standard Unix filter
    that can be integrated nicely with editors like Vim.
@@ -32,18 +63,20 @@ Its features include:
 
  * Can connect to the API of:
 
-    * [Anthropic](https://www.anthropic.com/),
+    * [Anthropic (Claude)](https://www.anthropic.com/),
     * [DeepSeek](https://www.deepseek.com/en),
-    * [Google](https://gemini.google.com/),
-    * [OpenAI](https://openai.com/),
-    * [Perplexity](https://www.perplexity.ai/),
-    * and [xAI](https://x.ai/).
+    * [Google (Gemini)](https://gemini.google.com/),
+    * [OpenAI (ChatGTP)](https://openai.com/),
+    * [Perplexity (Sonar)](https://www.perplexity.ai/),
+    * and [xAI (Grok)](https://x.ai/).
 
-### Dependencies
+Dependencies
+------------
 
 None. Only built-in Python modules.
 
-### Setting up ai-cat.py
+Setting up ai-cat.py before the first use
+-----------------------------------------
 
 To use `ai-cat.py`, you need to generate an API key for at least one of the
 supported AI providers, and save it in `~/.ai-py` in the following format
@@ -70,7 +103,8 @@ provide the API keys via the following environment variables as well:
  * `PERPLEXITY_API_KEY`,
  * `XAI_API_KEY`.
 
-### Syntax
+Syntax
+------
 
 A basic conversation after a few turns may look like this:
 
@@ -132,7 +166,8 @@ If `ai-cat.py` is used as a Unix filter and its standard input is empty, then it
 will generate an empty conversation template, including its default system
 prompt.
 
-### Why?
+But why?
+--------
 
 It's intended to solve my complaints against existing solutions:
 
