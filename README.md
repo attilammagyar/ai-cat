@@ -6,30 +6,32 @@ A simple and stupid, [Vim](https://www.vim.org/)-friendly,
 for popular [LLM](https://en.wikipedia.org/wiki/Large_language_model) AI
 chatbot APIs.
 
-    $ ai-cat.py <<EOF
-    # === System ===
+```sh
+$ ai-cat.py <<EOF
+# === System ===
 
-    Please act as a helpful AI assistant.
+Please act as a helpful AI assistant.
 
-    # === Settings ===
+# === Settings ===
 
-    Model: openai/gpt-4.1
+Model: openai/gpt-4.1
 
-    # === User ===
+# === User ===
 
-    Please explain in a brief sentence why the sky is blue.
+Please explain in a brief sentence why the sky is blue.
 
-    # === AI ===
+# === AI ===
 
-    The sky is blue because molecules in the Earth's atmosphere scatter
-    shorter-wavelength blue light from the sun more than they scatter
-    longer-wavelength red light.
+The sky is blue because molecules in the Earth's atmosphere scatter
+shorter-wavelength blue light from the sun more than they scatter
+longer-wavelength red light.
 
-    # === User ===
+# === User ===
 
-    Say that again but talk like a pirate.
+Say that again but talk like a pirate.
 
-    EOF
+EOF
+```
 
 (`ai-cat` as in the name of the Unix/Linux tool
 [cat](https://en.wikipedia.org/wiki/Cat_%28Unix%29), because it
@@ -70,13 +72,24 @@ Features
     * [Perplexity (Sonar)](https://www.perplexity.ai/),
     * and [xAI (Grok)](https://x.ai/).
 
+Demo
+----
+
+### As an interactive CLI app
+
+<img src="https://raw.githubusercontent.com/attilammagyar/ai-cat/main/images/ai-cat-py-interactive.gif" alt="ai-cat.py running as an interactive CLI app" />
+
+### As a standard Unix filter, integrated into Vim
+
+<img src="https://raw.githubusercontent.com/attilammagyar/images/main/images/ai-cat-py-vim.gif" alt="ai-cat.py integrated into Vim" />
+
 Dependencies
 ------------
 
 None. Only built-in Python modules.
 
-Setting up ai-cat.py before the first use
------------------------------------------
+Setting up before the first use
+-------------------------------
 
 To use `ai-cat.py`, you need to generate an API key for at least one of the
 supported AI providers, and save it in `~/.ai-cat` in the following format
@@ -108,33 +121,35 @@ Syntax
 
 A basic conversation after a few turns may look like this:
 
-    # === System ===
+```md
+# === System ===
 
-    Please act as a helpful AI assistant.
+Please act as a helpful AI assistant.
 
-    # === Settings ===
+# === Settings ===
 
-    Model: openai/gpt-4.1
-    Reasoning: default
-    Streaming: on
-    Temperature: 1.0
+Model: openai/gpt-4.1
+Reasoning: default
+Streaming: on
+Temperature: 1.0
 
-    # === User ===
+# === User ===
 
-    Please explain why the sky is blue.
+Please explain why the sky is blue.
 
-    # === AI ===
+# === AI ===
 
-    Because the air scatters the blue light more than the other colors.
+Because the air scatters the blue light more than the other colors.
 
-    # === User ===
+# === User ===
 
-    Say that again but talk like a pirate.
+Say that again but talk like a pirate.
 
-    # === AI ===
+# === AI ===
 
-    Yarr, 'tis 'cause th' air be scatterin' th' blue light more'n all th' other
-    colors, savy?
+Yarr, 'tis 'cause th' air be scatterin' th' blue light more'n all th' other
+colors, savy?
+```
 
 The `System` block contains general behavioural instructions for the model,
 a.k.a. the system prompt. It is always automatically moved to the beginning of
@@ -165,6 +180,136 @@ never sent back to the AI.
 If `ai-cat.py` is used as a Unix filter and its standard input is empty, then it
 will generate an empty conversation template, including its default system
 prompt.
+
+Vim integration
+---------------
+
+The following `~/.vimrc` snippet sets up the `:AI` command to either initialize
+a new conversation or run an existing one through `~/bin/ai-cat.py`, depending
+on the current buffer's contents (assumes that Vim is running in a terminal):
+
+```vim
+" The :AI command will run the current buffer through ~/bin/ai-cat.py in order
+" to generate a continuation if it looks like an ai-cat.py conversation,
+" otherwise it will start a new conversation.
+function! AICat()
+    " Command which will replace the buffer with the stdout of the shell command
+    " while displaying its stderr in the terminal.
+    let l:ai_filter_cmd = "%!~/bin/ai-cat.py stdio 2>/dev/tty"
+
+    let l:cursor_position = getpos(".")
+
+    " Does the currently edited buffer's name look like an ai-cat.py
+    " conversation? If the name is empty or ends with .md, then it does.
+    let l:may_be_ai_conversation = (expand("%") =~ "^\\(.*\\.md\\)\\?$")
+
+    " Is the buffer an already initialized, ongoing ai-act.py conversation?
+    " If it contains block header lines used by ai-act.py, then it is.
+    let l:is_ai_conversation = 0
+
+    if l:may_be_ai_conversation
+        for l:line_num in range(1, line("$"))
+            if getline(l:line_num) =~ "^# === .* ===$"
+                let l:is_ai_conversation = 1
+                break
+            endif
+        endfor
+    endif
+
+    if l:is_ai_conversation
+        " Run the conversation through the filter, and put the cursor at the
+        " beginning of the last AI, AI Reasoning, or User block or to the end
+        " if none of them can be found.
+
+        execute l:ai_filter_cmd
+
+        if v:shell_error != 0
+            undo
+            call setpos(".", l:cursor_position)
+            return
+        endif
+
+        redraw
+
+        let l:response_pos = 0
+
+        for l:line_num in range(line("$"), 1, -1)
+            if getline(l:line_num) =~ "^# === \\(AI\\( Reasoning\\)*\\|User\\) ===$"
+                let l:response_pos = l:line_num
+                break
+            endif
+        endfor
+
+        if l:response_pos > 0
+            call cursor(l:response_pos, 1)
+        else
+            normal! G
+        endif
+    else
+        " Need to initialize a new conversaion - since this will overwrite the
+        " entire buffer, we do it in a new tab if the current one is not empty
+        " or its name doesn't look like an ai-cat.py conversaion.
+
+        if line("$") != 1 || getline(1) != "" || !l:may_be_ai_conversation
+            tabnew
+        endif
+
+        execute l:ai_filter_cmd
+        set filetype=markdown
+
+        if v:shell_error != 0
+            undo
+            return
+        endif
+
+        redraw
+        normal! G
+        startinsert
+    endif
+endfunction
+command! -nargs=0 AI call AICat()
+```
+
+When using AI for coding, the Vimscript snippet below may also be useful:
+the `vI` (`v` followed by Shift + `i`) hotkey in Normal mode will select all
+lines between the first Markdown code fence above and below the cursor. (The
+`v` key triggers Visual mode, the `I` key calls the
+`SelectBetweenMarkdownFences()` function.)
+
+```vim
+" Pressing I (Shift+i) in visual mode will select everything between the
+" previous and the next Markdown code fence. (Does not handle code blocks
+" that are nested inside other elements like list items or block quotes.)
+function! SelectBetweenMarkdownFences()
+    let l:current_line = line(".")
+    let l:begin = 1
+    let l:end = line("$")
+
+    " Could use search("^```", "Wbcn") and search("^```", "Wn"), but that would
+    " mess up the search history.
+
+    for l:line_num in range(l:current_line, 1, -1)
+        if getline(l:line_num) =~ "^```"
+            let l:begin = l:line_num + 1
+            break
+        endif
+    endfor
+
+    for l:line_num in range(l:current_line + 1, line("$"))
+        if getline(l:line_num) =~ "^```"
+            let l:end = l:line_num - 1
+            break
+        endif
+    endfor
+
+    if l:begin > l:end
+        return
+    endif
+
+    execute "normal! " . l:begin . "Gv" . l:end . "G$"
+endfunction
+xnoremap <silent> I :call SelectBetweenMarkdownFences()<CR>
+```
 
 But why?
 --------
