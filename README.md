@@ -335,8 +335,10 @@ It's intended to solve my complaints against existing solutions:
 
 5. There is undeniably a hype in the industry right now (as of August, 2025).
    When the music stops and the VC money dries up, several products will go
-   down, others will get heavily "enshittified". Developing a reliance on any
-   particular service risks future pain.
+   down, others will get heavily [enshittified](https://en.wikipedia.org/wiki/Enshittification).
+   Developing a reliance on any particular service (see also: [vendor
+   lock-in](https://en.wikipedia.org/wiki/Vendor_lock-in)) risks future pain
+   and disappointment.
 
 6. AFAIK the legal status of AI generated code is still unclear (as of August,
    2025): can you put large chunks of it in open source (e.g. GPL) or
