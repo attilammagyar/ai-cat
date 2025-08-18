@@ -216,7 +216,7 @@ all of them! Now go and act like you mean it!
 def main(argv):
     parser = argparse.ArgumentParser(
         prog="ai-cat.py",
-        description="AI CLI tool.",
+        description="A simple and stupid, Vim-friendly, Markdown-based command-line client for popular LLM AI chatbot APIs.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
