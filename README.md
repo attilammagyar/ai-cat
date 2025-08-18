@@ -81,7 +81,7 @@ Demo
 
 ### As a standard Unix filter, integrated into Vim
 
-<img src="https://raw.githubusercontent.com/attilammagyar/images/main/images/ai-cat-py-vim.gif" alt="ai-cat.py integrated into Vim" />
+<img src="https://raw.githubusercontent.com/attilammagyar/ai-cat/main/images/ai-cat-py-vim.gif" alt="ai-cat.py integrated into Vim" />
 
 Dependencies
 ------------
