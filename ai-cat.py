@@ -46,8 +46,8 @@ import json
 import math
 import os
 import os.path
+import platform
 import re
-import readline
 import subprocess
 import sys
 import tempfile
@@ -57,9 +57,13 @@ import typing
 import urllib.parse
 
 
+IS_WINDOWS = platform.system() == "Windows"
+
 HOME_DIR_NAME = os.path.expanduser("~")
 
-STATE_FILE_NAME = os.path.expanduser(os.path.join("~", ".ai-cat"))
+STATE_FILE_NAME = os.path.expanduser(
+    os.path.join("~", ".ai-cat" if not IS_WINDOWS else "_ai-cat")
+)
 
 MODELS_CACHE_TTL_SECONDS = 3 * 24 * 60 * 60
 
@@ -242,14 +246,15 @@ def main(argv):
         argv.append("interactive" if sys.stdin.isatty() else "stdio")
 
     parsed_argv = parser.parse_args(argv)
-    editor = os.getenv("EDITOR", "vi")
     state = load_state()
 
     if state is None:
         return 1
 
-    state_file_api_keys, models, models_cache_updated, settings = state
-    api_keys = collect_api_keys(state_file_api_keys)
+    api_keys_state_file, models, models_cache_updated, settings, editor_state_file = state
+
+    api_keys = collect_api_keys(api_keys_state_file)
+    editor = find_editor(editor_state_file)
 
     ai_client_cls = {
         "anthropic": AnthropicClient,
@@ -282,6 +287,8 @@ def main(argv):
     apply_settings(messenger, settings)
 
     if parsed_argv.command == "interactive":
+        info(f"Will use {editor!r} to edit conversations.")
+
         init_question = " ".join(parsed_argv.question).strip()
 
         ai_cmd = AiCmd(editor, messenger)
@@ -315,7 +322,13 @@ def main(argv):
     }
 
     try:
-        save_state(state_file_api_keys, models, models_cache_updated, settings)
+        save_state(
+            api_keys_state_file,
+            models,
+            models_cache_updated,
+            settings,
+            editor_state_file,
+        )
 
     except Exception as exc:
         error(f"Unable to save state in {STATE_FILE_NAME}: {type(exc)}: {exc}")
@@ -1877,6 +1890,7 @@ class XAiClient(AiClient):
             for message in conversation
         ]
 
+
 def load_state():
     info(f"Loading {STATE_FILE_NAME}...")
 
@@ -1951,20 +1965,24 @@ Expected format (omit the API keys that you don't use):
         "temperature": float(get_item(settings, "temperature", default=1.0, expect_type=(int, float))),
     }
 
-    return api_keys, models, models_cache_updated, settings
+    editor = get_item(state, "editor")
+
+    return api_keys, models, models_cache_updated, settings, editor
 
 
 def save_state(
-        state_file_api_keys: typing.Dict[str, str],
+        api_keys_state_file: typing.Dict[str, str],
         models: typing.Dict[str, typing.List[str]],
         models_cache_updated: int,
         settings: typing.Dict[str, typing.Any],
+        editor_state_file: str,
 ):
     info(f"Saving state into {STATE_FILE_NAME}...")
 
     state = {
-        "api_keys": state_file_api_keys,
+        "api_keys": api_keys_state_file,
         "settings": settings,
+        "editor": editor_state_file,
         "models_updated": models_cache_updated,
         "models": models,
     }
@@ -1979,13 +1997,13 @@ def save_state(
     with new_state_file:
         json.dump(state, new_state_file, indent=2)
 
-    os.rename(new_state_file.name, STATE_FILE_NAME)
+    os.replace(new_state_file.name, STATE_FILE_NAME)
 
 
 def collect_api_keys(
-        state_file_api_keys: typing.Dict[str, str],
+        api_keys_state_file: typing.Dict[str, str],
 ) -> typing.Dict[str, str]:
-    api_keys = dict(state_file_api_keys)
+    api_keys = dict(api_keys_state_file)
 
     for provider, env_var_name in ENV_VAR_NAMES.items():
         api_key = os.getenv(env_var_name)
@@ -1995,6 +2013,15 @@ def collect_api_keys(
             api_keys[provider] = api_key
 
     return api_keys
+
+
+def find_editor(editor_state_file) -> str:
+    default_editor = "vi" if not IS_WINDOWS else "notepad.exe"
+
+    if isinstance(editor_state_file, str) and len(editor_state_file) > 0:
+        default_editor = editor_state_file
+
+    return os.getenv("EDITOR", default_editor)
 
 
 def ensure_up_to_date_models(
@@ -2565,7 +2592,16 @@ class AiCmd(cmd.Cmd):
         self._ai_messenger = ai_messenger
         self._printer = WrappingPrinter()
 
-        readline.set_completer_delims(" \t\n")
+    def cmdloop(self, *args, **kwargs):
+        try:
+            # The readline module is not available by default on Windows...
+            import readline
+            readline.set_completer_delims(" \t\n")
+
+        except ImportError:
+            pass
+
+        return super().cmdloop(*args, **kwargs)
 
     def do_model(self, arg):
         "Show or set the model to be used."
@@ -2586,6 +2622,11 @@ class AiCmd(cmd.Cmd):
 
     def complete_model(self, text, line, begidx, endidx):
         return self._ai_messenger.filter_models_by_prefix(text)
+
+    def do_models(self, arg):
+        "Show all available models."
+
+        print(os.linesep.join(self._ai_messenger.filter_models_by_prefix("")))
 
     def do_reasoning(self, arg):
         "Turn reasoning on or off, or use the default behavior of the model. (Ignored for some providers.)"

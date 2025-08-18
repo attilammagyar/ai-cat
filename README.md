@@ -91,23 +91,29 @@ None. Only built-in Python modules.
 Setting up before the first use
 -------------------------------
 
+Place `ai-cat.py` to a location where your system can find it and run it using
+Python. Adjust your `PATH` variable if necessary.
+
 To use `ai-cat.py`, you need to generate an API key for at least one of the
-supported AI providers, and save it in `~/.ai-cat` in the following format
-(delete the ones that you don't want to use):
+supported AI providers, and save it in `~/.ai-cat` (or
+`C:\Users\<NAME>\_ai-cat` on Windows) in the following format - delete the ones
+that you don't want to use:
 
-    {
-      "api_keys": {
-        "anthropic": "Anthropic Claude API key here (https://console.anthropic.com/settings/keys)",
-        "deepseek": "DeepSeek R1 API key here (https://platform.deepseek.com/api_keys)",
-        "google": "Google Gemini API key here (https://aistudio.google.com/apikey)",
-        "openai": "OpenAI ChatGPT API key here (https://platform.openai.com/settings/organization/api-keys)",
-        "perplexity": "Perplexity API key here (https://www.perplexity.ai/account/api/keys)",
-        "xai": "xAI API key here (https://console.x.ai/team/default/api-keys)"
-      }
-    }
+```json
+{
+  "api_keys": {
+    "anthropic": "Anthropic Claude API key here (https://console.anthropic.com/settings/keys)",
+    "deepseek": "DeepSeek R1 API key here (https://platform.deepseek.com/api_keys)",
+    "google": "Google Gemini API key here (https://aistudio.google.com/apikey)",
+    "openai": "OpenAI ChatGPT API key here (https://platform.openai.com/settings/organization/api-keys)",
+    "perplexity": "Perplexity API key here (https://www.perplexity.ai/account/api/keys)",
+    "xai": "xAI API key here (https://console.x.ai/team/default/api-keys)"
+  }
+}
+```
 
-Alternatively, you can leave the `api_keys` field empty in `~/.ai-cat`, and
-provide the API keys via the following environment variables as well:
+Alternatively, you can leave the `api_keys` field empty, and provide the API
+keys via the following environment variables as well:
 
  * `ANTHROPIC_API_KEY`,
  * `DEEPSEEK_API_KEY`,
@@ -115,6 +121,18 @@ provide the API keys via the following environment variables as well:
  * `OPENAI_API_KEY`,
  * `PERPLEXITY_API_KEY`,
  * `XAI_API_KEY`.
+
+The `EDITOR` environment variable can be used for customizing what text editor
+will be launched in interactive mode to edit the conversation before sending it
+to the AI for completion. Your preferred default editor (in case `EDITOR` is
+not set) can also be specified next to the API keys:
+
+```json
+{
+  "api_keys": { ... },
+  "editor": "vim"
+}
+```
 
 Syntax
 ------
@@ -184,18 +202,31 @@ prompt.
 Vim integration
 ---------------
 
-The following `~/.vimrc` snippet sets up the `:AI` command to either initialize
-a new conversation or run an existing one through `~/bin/ai-cat.py`, depending
-on the current buffer's contents (assumes that Vim is running in a terminal):
+The following `~/.vimrc` snippet (or `_vimrc` for Windows users) sets up the
+`:AI` command to either initialize a new conversation or run an existing one
+through `ai-cat.py` (make sure that your `PATH` is set up correctly so that
+`ai-cat.py` can be run, or adjust the snippet to fit your environment),
+depending on the current buffer's contents (assumes that Vim is running in a
+terminal):
 
 ```vim
-" The :AI command will run the current buffer through ~/bin/ai-cat.py in order
-" to generate a continuation if it looks like an ai-cat.py conversation,
-" otherwise it will start a new conversation.
+" The :AI command will run the current buffer through ai-cat.py (must be on
+" PATH) in order to generate a continuation if it looks like an already
+" established ai-cat.py conversation, otherwise it will initialize a new
+" conversation in a new tab.
 function! AICat()
-    " Command which will replace the buffer with the stdout of the shell command
-    " while displaying its stderr in the terminal.
-    let l:ai_filter_cmd = "%!~/bin/ai-cat.py stdio 2>/dev/tty"
+    let l:console_file = "/dev/tty"
+
+    if has("win32")
+        " The redirection to the special console file doesn't work in gVim,
+        " so there will be no streaming. At least, it works in a terminal based
+        " vim.exe.
+        let l:console_file = "CON"
+    endif
+
+    " The command will replace the buffer with the stdout while displaying its
+    " stderr in the terminal.
+    let l:ai_cat_cmd = "%!ai-cat.py stdio 2>" . l:console_file
 
     let l:cursor_position = getpos(".")
 
@@ -209,7 +240,7 @@ function! AICat()
 
     if l:may_be_ai_conversation
         for l:line_num in range(1, line("$"))
-            if getline(l:line_num) =~ "^# === .* ===$"
+            if getline(l:line_num) =~ "^# === .* ===\\r\\?$"
                 let l:is_ai_conversation = 1
                 break
             endif
@@ -217,11 +248,11 @@ function! AICat()
     endif
 
     if l:is_ai_conversation
-        " Run the conversation through the filter, and put the cursor at the
+        " Run the conversation through ai-cat, and put the cursor at the
         " beginning of the last AI, AI Reasoning, or User block or to the end
         " if none of them can be found.
 
-        execute l:ai_filter_cmd
+        execute l:ai_cat_cmd
 
         if v:shell_error != 0
             undo
@@ -234,7 +265,7 @@ function! AICat()
         let l:response_pos = 0
 
         for l:line_num in range(line("$"), 1, -1)
-            if getline(l:line_num) =~ "^# === \\(AI\\( Reasoning\\)*\\|User\\) ===$"
+            if getline(l:line_num) =~ "^# === \\(AI\\( Reasoning\\)*\\|User\\) ===\\r\\?$"
                 let l:response_pos = l:line_num
                 break
             endif
@@ -254,7 +285,7 @@ function! AICat()
             tabnew
         endif
 
-        execute l:ai_filter_cmd
+        execute l:ai_cat_cmd
         set filetype=markdown
 
         if v:shell_error != 0
