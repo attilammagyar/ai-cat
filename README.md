@@ -328,7 +328,7 @@ It's intended to solve my complaints against existing solutions:
    leaving them to work alone, changing files and running arbitrary commands
    based on a stochastic process, regardless of how sophisticated that may be.
 
-4. You get good at what you practice, and you lose skills that you don't.
+4. You get good at what you practise, and you lose skills that you don't.
    Therefore I try to limit my AI usage to only the boring parts of programming
    (e.g. cookie-cutter UI stuff, boilerplate, etc.), and to get my work
    reviewed.
