@@ -4,7 +4,7 @@ ai-cat.py
 A simple and stupid, [Vim](https://www.vim.org/)-friendly,
 [Markdown](https://en.wikipedia.org/wiki/Markdown)-based command-line client
 for popular [LLM](https://en.wikipedia.org/wiki/Large_language_model) AI
-chatbot APIs.
+chatbot APIs, written in [Python](https://www.python.org/).
 
 ```sh
 $ ai-cat.py <<EOF
