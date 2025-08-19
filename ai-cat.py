@@ -289,9 +289,9 @@ def main(argv):
             help=(
                 "Read lines from stdin, and using the given file name as"
                 " contextual information, suggest replacement lines on stdout,"
-                " or return 1 to indicate that the AI wants further"
-                " discussion. In either case, the first line on stdout will"
-                " be the name of a file which contains the entire conversation."
+                " or return 1 to indicate that the AI needs further"
+                " discussion. In the latter case, the entire conversation is"
+                " printed to stdout."
             )
         )
         replace_parser.add_argument(
