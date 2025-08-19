@@ -35,13 +35,13 @@ _concatenates_ the AI's response to the end of the given conversation.)
 Demo
 ----
 
-### Code completion in Vim
-
-<img src="https://raw.githubusercontent.com/attilammagyar/ai-cat/main/images/ai-cat-py-vim-tab.gif" alt="ai-cat.py performing tab completion in Vim" />
-
 ### Chat in Vim
 
 <img src="https://raw.githubusercontent.com/attilammagyar/ai-cat/main/images/ai-cat-py-vim.gif" alt="ai-cat.py stdin/stdout chat, integrated into Vim" />
+
+### Code replacement in Vim
+
+<img src="https://raw.githubusercontent.com/attilammagyar/ai-cat/main/images/ai-cat-py-vim-replace.gif" alt="ai-cat.py performing code replacement in Vim" />
 
 ### As an interactive CLI app
 
@@ -83,7 +83,7 @@ Features
     * and [xAI (Grok)](https://x.ai/).
 
  * The **replace mode** (`ai-cat.py replace`) can be used for implementing a
-   simple and crude AI code completion in Vim or any scriptable text editor:
+   simple and crude AI-aided code editing in Vim or any scriptable text editor:
 
     * the lines that are supplied over the standard input are sent to the AI,
 
@@ -227,22 +227,32 @@ prompt.
 Vim integration
 ---------------
 
-### Chat and simple autocomplete
+### Chat and code editing
 
 The `~/.vimrc` snippet below (or `_vimrc` for Windows users) sets up the
 `:AI` command to either initialize a new conversation or run an existing one
-through `ai-cat.py` (make sure that your `PATH` is set up correctly so that
-`ai-cat.py` can be run, or adjust the snippet to fit your environment),
-depending on the contents of the current buffer. (It works best when Vim is
-running in a terminal.)
+through `ai-cat.py`, depending on the contents of the current buffer. (Make
+sure that your `PATH` is set up correctly so that `ai-cat.py` can be run, or
+adjust the snippet to fit your environment.) It works best when Vim is running
+in a terminal.
 
-It also sets up a very simple and crude tab-completion: add to-do comments to a
-piece of code, select all the relevant lines in visual mode, and press the
-`Tab` key to run them through `ai-cat.py` with the last used settings, and
-replace them automatically. If the AI needs more information or otherwise fails
-to produce a usable replacement for the selected lines, then the conversation
-is opened in a new tab for editing which then can be continued using the `:AI`
-command.
+It also sets up a very minimalistic and crude code generator:
+
+ * add to-do comments to a piece of code,
+
+ * select all the relevant lines in visual mode,
+
+ * and press the `Tab` key to run them through `ai-cat.py` with the last used
+   settings, and replace them automatically with the result.
+
+If the AI needs more information or otherwise fails to produce a usable
+replacement for the selected lines, then the conversation is opened in a new
+tab for editing which then can be continued using the `:AI` command.
+
+The advantage of this approach is that you get precise manual control over what
+gets sent to the AI. The disadvantage is that you *have to precisely control
+manually what gets sent to the AI*. No context, no codebase indexing, no LSP
+integration, no nothing.
 
 ```vim
 function! AICatCmd(args)
