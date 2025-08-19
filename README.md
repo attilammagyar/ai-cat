@@ -82,8 +82,8 @@ Features
     * [Perplexity (Sonar)](https://www.perplexity.ai/),
     * and [xAI (Grok)](https://x.ai/).
 
- * The **replace mode** (`ai-cat.py replace`) can be used for implementing AI
-   code completion in Vim or any scriptable text editor:
+ * The **replace mode** (`ai-cat.py replace`) can be used for implementing a
+   simple and crude AI code completion in Vim or any scriptable text editor:
 
     * the lines that are supplied over the standard input are sent to the AI,
 
@@ -102,7 +102,7 @@ Features
          `ai-cat.py` conversation in Markdown.
 
        * `2` and everything else means that an error occurred, check the
-         standard error channel for the details.
+         standard error for the details.
 
 Dependencies
 ------------
@@ -227,7 +227,7 @@ prompt.
 Vim integration
 ---------------
 
-### Chat and autocomplete
+### Chat and simple autocomplete
 
 The `~/.vimrc` snippet below (or `_vimrc` for Windows users) sets up the
 `:AI` command to either initialize a new conversation or run an existing one
@@ -236,12 +236,13 @@ through `ai-cat.py` (make sure that your `PATH` is set up correctly so that
 depending on the contents of the current buffer. (It works best when Vim is
 running in a terminal.)
 
-It also sets up tab-completion: add to-do comments to a piece of code, select
-all the relevant lines in visual mode, and press the `Tab` key to run them
-through `ai-cat.py` with the last used settings, and replace them
-automatically. If the AI needs more information or otherwise fails to produce
-usable results, then the conversation is opened in a new tab for editing which
-can then be continued using the `:AI` command.
+It also sets up a very simple and crude tab-completion: add to-do comments to a
+piece of code, select all the relevant lines in visual mode, and press the
+`Tab` key to run them through `ai-cat.py` with the last used settings, and
+replace them automatically. If the AI needs more information or otherwise fails
+to produce a usable replacement for the selected lines, then the conversation
+is opened in a new tab for editing which then can be continued using the `:AI`
+command.
 
 ```vim
 function! AICatCmd(args)
@@ -350,6 +351,9 @@ endfunction
 " requests more information or otherwise fails to produce a usable replacement,
 " then the conversation is opened in a new tab for editing. From there, the
 " `:AI` command can be used to continue it. (See above.)
+"
+" NOTE: only the selected lines and the name of the edited file are sent to the
+"       AI, so make sure that they contain all the necessary information.
 function! AICatTabComplete() range
     let l:begin_line = line("'<")
     let l:end_line = line("'>")
