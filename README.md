@@ -389,7 +389,7 @@ endfunction
 xnoremap <silent> <Tab> :call AICatTabComplete()<CR>
 ```
 
-### Copy between Markdown code fences
+### Select text between Markdown code fences
 
 When using AI for coding, the Vimscript snippet below may also be useful:
 the `vI` (`v` followed by Shift + `i`) hotkey in Normal mode will select all
