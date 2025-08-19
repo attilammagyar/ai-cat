@@ -251,8 +251,9 @@ tab for editing which then can be continued using the `:AI` command.
 
 The advantage of this approach is that you get precise manual control over what
 gets sent to the AI. The disadvantage is that you *have to precisely control
-manually what gets sent to the AI*. No context, no codebase indexing, no LSP
-integration, no nothing.
+manually what gets sent to the AI*. No context, no codebase indexing, no
+[LSP](https://en.wikipedia.org/wiki/Language_Server_Protocol) integration, no
+nothing.
 
 ```vim
 function! AICatCmd(args)
