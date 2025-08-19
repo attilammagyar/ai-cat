@@ -816,7 +816,7 @@ class AnthropicClient(AiClient):
             "temperature": temperature,
             "stream": stream,
             "messages": messages,
-            "max_tokens": 32768,
+            "max_tokens": 32000,
         }
 
         if system_prompt is not None:
@@ -825,7 +825,7 @@ class AnthropicClient(AiClient):
         if reasoning == Reasoning.ON:
             body["thinking"] = {
                 "type": "enabled",
-                "budget_tokens": 16384,
+                "budget_tokens": 16000,
             }
 
         elif reasoning == Reasoning.OFF:
