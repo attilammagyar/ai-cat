@@ -240,7 +240,8 @@ It also sets up tab-completion: add to-do comments to a piece of code, select
 all the relevant lines in visual mode, and press the `Tab` key to run them
 through `ai-cat.py` with the last used settings, and replace them
 automatically. If the AI needs more information or otherwise fails to produce
-usable results, then the conversation is opened in a new tab for editing.
+usable results, then the conversation is opened in a new tab for editing which
+can then be continued using the `:AI` command.
 
 ```vim
 function! AICatCmd(args)
@@ -366,11 +367,17 @@ function! AICatTabComplete() range
 
     if v:shell_error != 0
         redraw!
-        tabnew
-        set filetype=markdown
-        call append(0, split(l:output, "\n", 1))
-        call AIJumpToRelevantBlock()
-        echo "The AI needs more info, use :AI to continue the conversation"
+
+        if v:shell_error == 1
+            tabnew
+            set filetype=markdown
+            call append(0, split(l:output, "\n", 1))
+            call AIJumpToRelevantBlock()
+            echo "The AI needs more info, use :AI to continue the conversation"
+            return
+        endif
+
+        echohl ErrorMsg | echo "Error running ai-cat.py" | echohl None
         return
     endif
 
