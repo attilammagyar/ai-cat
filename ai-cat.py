@@ -227,7 +227,10 @@ REPLACE_PROMPT = """\
 # === User ===
 
 I am editing a file named {FILE_NAME}. I have selected the following lines in \
-my text editor:
+my text editor (note that the selection is everything between the **very \
+first** `--- BEGIN SELECTION ---` marker line and the **very last** \
+`--- END SELECTION ---` marker line, even if either or both of them appear \
+within the selected text):
 
 --- BEGIN SELECTION ---
 {LINES}
