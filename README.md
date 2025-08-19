@@ -354,7 +354,7 @@ endfunction
 "
 " NOTE: only the selected lines and the name of the edited file are sent to the
 "       AI, so make sure that they contain all the necessary information.
-function! AICatTabComplete() range
+function! AICatTabReplace() range
     let l:begin_line = line("'<")
     let l:end_line = line("'>")
 
@@ -390,7 +390,7 @@ function! AICatTabComplete() range
     execute "normal! " . l:begin_line . "G"
     redraw!
 endfunction
-xnoremap <silent> <Tab> :call AICatTabComplete()<CR>
+xnoremap <silent> <Tab> :call AICatTabReplace()<CR>
 ```
 
 ### Select text between Markdown code fences
