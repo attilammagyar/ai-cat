@@ -2709,12 +2709,6 @@ def cmd_replace(
 
     printer.print("", file=sys.stderr)
 
-    conv_file_name = create_tmp_conv_file(infix="repl")
-    print(conv_file_name)
-
-    with open(conv_file_name, "w") as f:
-        print(messenger.conversation_to_str(), file=f)
-
     ai_response = None
     messages = messenger.messages
 
@@ -2725,6 +2719,8 @@ def cmd_replace(
             break
 
     if ai_response is None:
+        print(messenger.conversation_to_str())
+
         return EXIT_CODE_REPLACE_FAIL
 
     ai_lines = ai_response.text.splitlines()
@@ -2741,6 +2737,8 @@ def cmd_replace(
             end_idx = idx
 
     if begin_idx is None or end_idx is None or begin_idx >= end_idx:
+        print(messenger.conversation_to_str())
+
         return EXIT_CODE_REPLACE_FAIL
 
     print("\n".join(ai_lines[begin_idx + 1:end_idx]))
@@ -2754,7 +2752,7 @@ class AiCmd(cmd.Cmd):
     def __init__(self, editor: str, ai_messenger: AiMessenger):
         super().__init__()
 
-        self._conv_filename = None
+        self._export_conv_filename = None
         self._edit_conv_filename = None
         self._editor = editor
         self._ai_messenger = ai_messenger
@@ -2863,8 +2861,8 @@ class AiCmd(cmd.Cmd):
         need_overwrite_warning = True
 
         if not filename:
-            need_overwrite_warning = not self._init_conv_file()
-            filename = self._conv_filename
+            need_overwrite_warning = not self._init_export_conv_file()
+            filename = self._export_conv_filename
 
         if os.path.exists(filename) and need_overwrite_warning:
             prompt = f"{filename} already exists, overwrite? (y/n) "
@@ -2891,11 +2889,11 @@ class AiCmd(cmd.Cmd):
 
             return
 
-    def _init_conv_file(self) -> bool:
-        if self._conv_filename is not None:
+    def _init_export_conv_file(self) -> bool:
+        if self._export_conv_filename is not None:
             return False
 
-        self._conv_filename = create_tmp_conv_file(dir=HOME_DIR_NAME)
+        self._export_conv_filename = create_tmp_conv_file(dir=HOME_DIR_NAME)
 
         return True
 
@@ -2933,9 +2931,6 @@ class AiCmd(cmd.Cmd):
 
     def _edit_conversation(self, conversation: str) -> typing.Optional[str]:
         if self._edit_conv_filename is None:
-            # The file is intentionally not deleted, so that the conversation
-            # can be recovered in case of any errors.
-
             tmp_conv_file_ctx = tempfile.NamedTemporaryFile(
                 prefix="ai-",
                 suffix=".md",
@@ -2968,6 +2963,13 @@ class AiCmd(cmd.Cmd):
             self._print_error(f"editor error: {e}")
 
             return None
+
+        finally:
+            try:
+                os.remove(self._edit_conv_filename)
+
+            except:
+                pass
 
     def do_EOF(self, arg):
         print("\nExiting.")

@@ -229,7 +229,7 @@ used AI in `ai-cat.py`. (If the AI needs more information or otherwise fails to
 produce usable results, then the conversation is opened in a new tab.)
 
 ```vim
-function! AICatCmd(range, args)
+function! AICatCmd(args)
     let l:console_file = "/dev/tty"
 
     if has("win32")
@@ -241,7 +241,7 @@ function! AICatCmd(range, args)
 
     " The command will replace the buffer with the stdout while displaying its
     " stderr in the terminal.
-    return a:range . "!ai-cat.py " . a:args . " 2>" . l:console_file
+    return "ai-cat.py " . a:args . " 2>" . l:console_file
 endfunction
 
 " The :AI command will run the current buffer through ai-cat.py (must be on
@@ -249,7 +249,7 @@ endfunction
 " established ai-cat.py conversation, otherwise it will initialize a new
 " conversation in a new tab.
 function! AICat()
-    let l:ai_cat_cmd = AICatCmd("%", "stdio")
+    let l:ai_cat_cmd = "%!" . AICatCmd("stdio")
     let l:cursor_position = getpos(".")
 
     " Does the currently edited buffer's name look like an ai-cat.py
@@ -274,6 +274,8 @@ function! AICat()
         " beginning of the last AI, AI Reasoning, or User block or to the end
         " if none of them can be found.
 
+        echohl None | echo "Waiting for AI..."
+
         execute l:ai_cat_cmd
 
         if v:shell_error != 0
@@ -284,20 +286,7 @@ function! AICat()
 
         redraw!
 
-        let l:response_pos = 0
-
-        for l:line_num in range(line("$"), 1, -1)
-            if getline(l:line_num) =~ "^# === \\(AI\\( Reasoning\\)*\\|User\\) ===\\r\\?$"
-                let l:response_pos = l:line_num
-                break
-            endif
-        endfor
-
-        if l:response_pos > 0
-            call cursor(l:response_pos, 1)
-        else
-            normal! G
-        endif
+        call AIJumpToRelevantBlock()
     else
         " Need to initialize a new conversaion - since this will overwrite the
         " entire buffer, we do it in a new tab if the current one is not empty
@@ -306,6 +295,8 @@ function! AICat()
         if line("$") != 1 || getline(1) != "" || !l:may_be_ai_conversation
             tabnew
         endif
+
+        echohl None | echo "Initializing conversation..."
 
         execute l:ai_cat_cmd
         set filetype=markdown
@@ -322,39 +313,58 @@ function! AICat()
 endfunction
 command! -nargs=0 AI call AICat()
 
+function! AIJumpToRelevantBlock()
+    let l:response_pos = 0
+
+    for l:line_num in range(line("$"), 1, -1)
+        if getline(l:line_num) =~ "^# === \\(AI\\( Reasoning\\)*\\|User\\) ===\\r\\?$"
+            let l:response_pos = l:line_num
+            break
+        endif
+    endfor
+
+    if l:response_pos > 0
+        call cursor(l:response_pos, 1)
+    else
+        normal! G
+    endif
+endfunction
+
 " Add to-do comments to a piece of code, select the relevant lines, then press
 " the Tab key to run them through the last used AI in ai-cat.py. If the AI
 " requests more information or otherwise fails to produce a usable output, then
 " the conversation is opened in a new tab.
 function! AICatTabComplete() range
-    " Assuming a reasonably safe file name.
-    let l:ai_cat_cmd = AICatCmd("'<,'>", "replace '" . expand("%") . "'")
-    let l:begin_line = a:firstline
-    let l:cursor_position = getpos(".")
+    let l:begin_line = line("'<")
+    let l:end_line = line("'>")
 
-    execute l:ai_cat_cmd
-
-    let l:shell_error = v:shell_error
-    let l:conv_file_name = getline(l:begin_line)
-
-    if l:shell_error != 0
-        undo
-        call setpos(".", l:cursor_position)
-
-        if l:shell_error == 1
-            execute "tabedit " . l:conv_file_name
-        endif
-
+    if l:begin_line == 0 || l:end_line == 0
+        echohl ErrorMsg | echo "Select the lines first to be replaced by AI." | echohl None
         return
     endif
 
-    execute ":" . l:begin_line . "d"
+    echohl None | echo "Waiting for AI..."
 
+    let l:ai_cat_cmd = AICatCmd("replace " . shellescape(expand("%")))
+    let l:input = join(getline(l:begin_line, l:end_line), "\n") . "\n"
+    let l:output = system(l:ai_cat_cmd, l:input)
+
+    if v:shell_error != 0
+        redraw!
+        tabnew
+        set filetype=markdown
+        call append(0, split(l:output, "\n", 1))
+        call AIJumpToRelevantBlock()
+        echo "The AI needs more info, use :AI to continue the conversation"
+        return
+    endif
+
+    execute l:begin_line . "," . l:end_line . "delete _"
+    call append(l:begin_line - 1, split(l:output, "\n", 1))
+    execute "normal! " . l:begin_line . "G"
     redraw!
-
-    echo "AI conversation: " . l:conv_file_name
 endfunction
-xnoremap <silent> <Tab> :<C-u>call AICatTabComplete()<CR>
+xnoremap <silent> <Tab> :call AICatTabComplete()<CR>
 ```
 
 ### Copy between Markdown code fences
