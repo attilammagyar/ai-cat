@@ -9,25 +9,20 @@ chatbot APIs, written in [Python](https://www.python.org/).
 ```sh
 $ ai-cat.py <<EOF
 # === System ===
-
 Please act as a helpful AI assistant.
 
 # === Settings ===
-
 Model: openai/gpt-4.1
 
 # === User ===
-
 Please explain in a brief sentence why the sky is blue.
 
 # === AI ===
-
 The sky is blue because molecules in the Earth's atmosphere scatter
 shorter-wavelength blue light from the sun more than they scatter
 longer-wavelength red light.
 
 # === User ===
-
 Say that again but talk like a pirate.
 
 EOF
@@ -36,6 +31,21 @@ EOF
 (`ai-cat` as in the name of the Unix/Linux tool
 [cat](https://en.wikipedia.org/wiki/Cat_%28Unix%29), because it
 _concatenates_ the AI's response to the end of the given conversation.)
+
+Demo
+----
+
+### Code completion in Vim
+
+<img src="https://raw.githubusercontent.com/attilammagyar/ai-cat/main/images/ai-cat-py-vim-tab.gif" alt="ai-cat.py performing tab completion in Vim" />
+
+### Chat in Vim
+
+<img src="https://raw.githubusercontent.com/attilammagyar/ai-cat/main/images/ai-cat-py-vim.gif" alt="ai-cat.py stdin/stdout chat, integrated into Vim" />
+
+### As an interactive CLI app
+
+<img src="https://raw.githubusercontent.com/attilammagyar/ai-cat/main/images/ai-cat-py-interactive.gif" alt="ai-cat.py running as an interactive CLI app" />
 
 Features
 --------
@@ -48,20 +58,20 @@ Features
    [sampling temperature](https://en.wikipedia.org/wiki/Softmax_function),
    reasoning, etc. Can switch models even in the middle of a conversation.
 
- * Allows editing the entire conversation, including the AI's responses, which
-   is useful for steering and nudging the autoregressive text generation
-   process if necessary.
+ * Allows editing the entire conversation, including the AI's responses.
+   (Useful for steering and nudging the autoregressive text generation process
+   if necessary.)
 
  * Simple, Markdown-based syntax.
 
- * Works as a standalone interactive CLI app or as a standard Unix filter
-   that can be integrated nicely with editors like Vim.
+ * Works as a standalone interactive CLI app or as an stdin/stdout filter
+   that can be integrated nicely with other program (e.g. Vim):
 
-    * To use the interactive mode, run `ai-cat.py interactive` (this is the
+    * To use the **interactive mode**, run `ai-cat.py interactive` (this is the
       default when the standard input is a TTY).
 
-    * To use the filter mode, run `ai-cat.py stdio` (this is the default when
-      the standard input is not a TTY).
+    * To use the **filter mode**, run `ai-cat.py stdio` (this is the default
+      when the standard input is not a TTY).
 
  * Can connect to the API of:
 
@@ -72,28 +82,27 @@ Features
     * [Perplexity (Sonar)](https://www.perplexity.ai/),
     * and [xAI (Grok)](https://x.ai/).
 
- * The `replace` mode can be used for implementing AI code completion in Vim or
-   any scriptable editor: the lines that are supplied over stdin are sent to
-   the AI which figures out what needs to be done (e.g. implement `TODO`
-   comments, etc.), and the result is printed to stdout along with the name of
-   the file in which the conversation is saved. (The latter can be useful when
-   the AI decides not to produce a solution, e.g. when it needs more
-   information from the user.)
+ * The **replace mode** (`ai-cat.py replace`) can be used for implementing AI
+   code completion in Vim or any scriptable text editor:
 
-Demo
-----
+    * the lines that are supplied over the standard input are sent to the AI,
 
-### As an interactive CLI app
+    * the model figures out what needs to be done (e.g. implement `TODO`
+      comments, etc.),
 
-<img src="https://raw.githubusercontent.com/attilammagyar/ai-cat/main/images/ai-cat-py-interactive.gif" alt="ai-cat.py running as an interactive CLI app" />
+    * the result is printed to the standard output,
 
-### As a standard Unix filter, integrated into Vim
+    * the exit code tells how to process it:
 
-<img src="https://raw.githubusercontent.com/attilammagyar/ai-cat/main/images/ai-cat-py-vim.gif" alt="ai-cat.py integrated into Vim" />
+       * `0` means that the AI successfully generated a replacement for the
+         given text.
 
-### Vim tab completion
+       * `1` means that the AI needs more information and wants to start a
+         discussion - in this case, the standard output contains an entire
+         `ai-cat.py` conversation in Markdown.
 
-<img src="https://raw.githubusercontent.com/attilammagyar/ai-cat/main/images/ai-cat-py-vim-tab.gif" alt="ai-cat.py performing tab completion in Vim" />
+       * `2` and everything else means that an error occurred, check the
+         standard error channel for the details.
 
 Dependencies
 ------------
@@ -146,10 +155,14 @@ not set) can also be specified next to the API keys:
 }
 ```
 
-Syntax
-------
+Conversation syntax
+-------------------
 
-A basic conversation after a few turns may look like this:
+A conversation is a sequence of text blocks that are separated by specially
+formatted level 1 Markdown header lines. The header lines tell `ai-cat.py` how
+to process each block.
+
+A basic conversation after a few turns may look like the following:
 
 ```md
 # === System ===
@@ -182,13 +195,13 @@ colors, savy?
 ```
 
 The `System` block contains general behavioural instructions for the model,
-a.k.a. the system prompt. It is always automatically moved to the beginning of
-the conversation, and when multiple `System` blocks are specified, only the
+a.k.a. the *system prompt*. It is always automatically moved to the beginning
+of the conversation, and when multiple `System` blocks are specified, only the
 last one is kept. When it is omitted, then the built-in system prompt from
 `ai-cat.py` is used.
 
-When the last block in a conversation is a `User` block, then `ai-cat.py` will send
-the conversation to the selected LLM and generate a response for it.
+When the last block in a conversation is a `User` block, then `ai-cat.py` will
+send the conversation to the selected LLM and generate a response for it.
 
 If the optional `Settings` block or any of the settings in it are omitted, then
 the values from the last `ai-cat.py` interaction are used. Subsequent `Setting`
@@ -196,8 +209,8 @@ blocks and settings overwrite each other.
 
 `ai-cat.py` also adds additional information blocks to the conversation:
 
- * `Notes`: a few tips for using `ai-cat.py`, and a complete list of the available
-   models from the configured providers.
+ * `Notes`: a few tips for using `ai-cat.py`, and a complete list of the
+   available models from the configured providers.
 
  * `AI Reasoning`: the chain-of-thought tokens or summaries generated by large
     reasoning models.
@@ -207,8 +220,8 @@ blocks and settings overwrite each other.
 These are included only for convenience and as diagnostic information, but are
 never sent back to the AI.
 
-If `ai-cat.py` is used as a Unix filter and its standard input is empty, then it
-will generate an empty conversation template, including its default system
+If `ai-cat.py` is used as a Unix filter and its standard input is empty, then
+it will generate an empty conversation template, including its default system
 prompt.
 
 Vim integration
@@ -220,13 +233,14 @@ The `~/.vimrc` snippet below (or `_vimrc` for Windows users) sets up the
 `:AI` command to either initialize a new conversation or run an existing one
 through `ai-cat.py` (make sure that your `PATH` is set up correctly so that
 `ai-cat.py` can be run, or adjust the snippet to fit your environment),
-depending on the contents of the current buffer (assumes that Vim is running in
-a terminal).
+depending on the contents of the current buffer. (It works best when Vim is
+running in a terminal.)
 
 It also sets up tab-completion: add to-do comments to a piece of code, select
-its lines in visual mode, and press the `Tab` key to run it through the last
-used AI in `ai-cat.py`. (If the AI needs more information or otherwise fails to
-produce usable results, then the conversation is opened in a new tab.)
+all the relevant lines in visual mode, and press the `Tab` key to run them
+through `ai-cat.py` with the last used settings, and replace them
+automatically. If the AI needs more information or otherwise fails to produce
+usable results, then the conversation is opened in a new tab for editing.
 
 ```vim
 function! AICatCmd(args)
@@ -332,8 +346,9 @@ endfunction
 
 " Add to-do comments to a piece of code, select the relevant lines, then press
 " the Tab key to run them through the last used AI in ai-cat.py. If the AI
-" requests more information or otherwise fails to produce a usable output, then
-" the conversation is opened in a new tab.
+" requests more information or otherwise fails to produce a usable replacement,
+" then the conversation is opened in a new tab for editing. From there, the
+" `:AI` command can be used to continue it. (See above.)
 function! AICatTabComplete() range
     let l:begin_line = line("'<")
     let l:end_line = line("'>")
