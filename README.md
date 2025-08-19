@@ -72,6 +72,14 @@ Features
     * [Perplexity (Sonar)](https://www.perplexity.ai/),
     * and [xAI (Grok)](https://x.ai/).
 
+ * The `replace` mode can be used for implementing AI code completion in Vim or
+   any scriptable editor: the lines that are supplied over stdin are sent to
+   the AI which figures out what needs to be done (e.g. implement `TODO`
+   comments, etc.), and the result is printed to stdout along with the name of
+   the file in which the conversation is saved. (The latter can be useful when
+   the AI decides not to produce a solution, e.g. when it needs more
+   information from the user.)
+
 Demo
 ----
 
@@ -82,6 +90,10 @@ Demo
 ### As a standard Unix filter, integrated into Vim
 
 <img src="https://raw.githubusercontent.com/attilammagyar/ai-cat/main/images/ai-cat-py-vim.gif" alt="ai-cat.py integrated into Vim" />
+
+### Vim tab completion
+
+<img src="https://raw.githubusercontent.com/attilammagyar/ai-cat/main/images/ai-cat-py-vim-tab.gif" alt="ai-cat.py performing tab completion in Vim" />
 
 Dependencies
 ------------
@@ -202,19 +214,22 @@ prompt.
 Vim integration
 ---------------
 
-The following `~/.vimrc` snippet (or `_vimrc` for Windows users) sets up the
+### Chat and autocomplete
+
+The `~/.vimrc` snippet below (or `_vimrc` for Windows users) sets up the
 `:AI` command to either initialize a new conversation or run an existing one
 through `ai-cat.py` (make sure that your `PATH` is set up correctly so that
 `ai-cat.py` can be run, or adjust the snippet to fit your environment),
-depending on the current buffer's contents (assumes that Vim is running in a
-terminal):
+depending on the contents of the current buffer (assumes that Vim is running in
+a terminal).
+
+It also sets up tab-completion: add to-do comments to a piece of code, select
+its lines in visual mode, and press the `Tab` key to run it through the last
+used AI in `ai-cat.py`. (If the AI needs more information or otherwise fails to
+produce usable results, then the conversation is opened in a new tab.)
 
 ```vim
-" The :AI command will run the current buffer through ai-cat.py (must be on
-" PATH) in order to generate a continuation if it looks like an already
-" established ai-cat.py conversation, otherwise it will initialize a new
-" conversation in a new tab.
-function! AICat()
+function! AICatCmd(range, args)
     let l:console_file = "/dev/tty"
 
     if has("win32")
@@ -226,8 +241,15 @@ function! AICat()
 
     " The command will replace the buffer with the stdout while displaying its
     " stderr in the terminal.
-    let l:ai_cat_cmd = "%!ai-cat.py stdio 2>" . l:console_file
+    return a:range . "!ai-cat.py " . a:args . " 2>" . l:console_file
+endfunction
 
+" The :AI command will run the current buffer through ai-cat.py (must be on
+" PATH) in order to generate a continuation if it looks like an already
+" established ai-cat.py conversation, otherwise it will initialize a new
+" conversation in a new tab.
+function! AICat()
+    let l:ai_cat_cmd = AICatCmd("%", "stdio")
     let l:cursor_position = getpos(".")
 
     " Does the currently edited buffer's name look like an ai-cat.py
@@ -260,7 +282,7 @@ function! AICat()
             return
         endif
 
-        redraw
+        redraw!
 
         let l:response_pos = 0
 
@@ -293,13 +315,49 @@ function! AICat()
             return
         endif
 
-        redraw
+        redraw!
         normal! G
         startinsert
     endif
 endfunction
 command! -nargs=0 AI call AICat()
+
+" Add to-do comments to a piece of code, select the relevant lines, then press
+" the Tab key to run them through the last used AI in ai-cat.py. If the AI
+" requests more information or otherwise fails to produce a usable output, then
+" the conversation is opened in a new tab.
+function! AICatTabComplete() range
+    " Assuming a reasonably safe file name.
+    let l:ai_cat_cmd = AICatCmd("'<,'>", "replace '" . expand("%") . "'")
+    let l:begin_line = a:firstline
+    let l:cursor_position = getpos(".")
+
+    execute l:ai_cat_cmd
+
+    let l:shell_error = v:shell_error
+    let l:conv_file_name = getline(l:begin_line)
+
+    if l:shell_error != 0
+        undo
+        call setpos(".", l:cursor_position)
+
+        if l:shell_error == 1
+            execute "tabedit " . l:conv_file_name
+        endif
+
+        return
+    endif
+
+    execute ":" . l:begin_line . "d"
+
+    redraw!
+
+    echo "AI conversation: " . l:conv_file_name
+endfunction
+xnoremap <silent> <Tab> :<C-u>call AICatTabComplete()<CR>
 ```
+
+### Copy between Markdown code fences
 
 When using AI for coding, the Vimscript snippet below may also be useful:
 the `vI` (`v` followed by Shift + `i`) hotkey in Normal mode will select all

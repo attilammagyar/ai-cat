@@ -53,6 +53,7 @@ import sys
 import tempfile
 import textwrap
 import time
+import traceback
 import typing
 import urllib.parse
 
@@ -66,6 +67,10 @@ STATE_FILE_NAME = os.path.expanduser(
 )
 
 MODELS_CACHE_TTL_SECONDS = 3 * 24 * 60 * 60
+
+EXIT_CODE_ERROR = 2
+EXIT_CODE_REPLACE_FAIL = 1
+
 
 ENV_VAR_NAMES = {
     "anthropic": "ANTHROPIC_API_KEY",
@@ -217,123 +222,162 @@ all of them! Now go and act like you mean it!
 """
 
 
+# TODO: handle when the input contains block header lines.
+REPLACE_PROMPT = """\
+# === User ===
+
+I am editing a file named {FILE_NAME}. I have selected the following lines in \
+my text editor:
+
+--- BEGIN SELECTION ---
+{LINES}
+--- END SELECTION ---
+
+I want you to carefully read this snippet, think about what needs to be done \
+here, give a brief explanation about your solution, and then show me the exact \
+lines that should replace the entire selection in my text editor. Use \
+`--- BEGIN REPLACEMENT ---` and `--- END REPLACEMENT ---` lines for marking the \
+beginning and the end of your suggestion, similarly to the above. It is **very \
+important** that you mark your suggested replacement with exactly these \
+characters, because a plugin in my editor will automatically replace the \
+selected lines with the replacement that you suggest between the very first \
+`--- BEGIN REPLACEMENT ---` marker and the very last `--- END REPLACEMENT ---` \
+marker. Therefore, as you can see, it is also crucial that you write **no more \
+than one** suggested replacement. If you write none however, then it will be \
+interpreted by the plugin as you indicating that you want to further discuss \
+the problem before providing a solution, e.g. because insufficient information \
+was provided, or there are multiple potential solutions, each with their own \
+unique advantages and disadvantages, so we should decide together which way to \
+go, etc. (Note that even when the plugin can successfully do the \
+replacement, your reasoning and explanation will still be shown to me.)
+"""
+
+
 def main(argv):
-    parser = argparse.ArgumentParser(
-        prog="ai-cat.py",
-        description="A simple and stupid, Vim-friendly, Markdown-based command-line client for popular LLM AI chatbot APIs.",
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    interactive_parser = subparsers.add_parser(
-        "interactive",
-        help="Interactive mode. (The default when stdin is a TTY.)"
-    )
-    interactive_parser.add_argument(
-        "question",
-        nargs=argparse.REMAINDER,
-        help="First question to ask.",
-    )
-
-    stdio_parser = subparsers.add_parser(
-        "stdio",
-        help="Read conversation from stdin, output response to stdout. (The default when stdin is not a TTY.)"
-    )
-
-    if len(argv) > 0:
-        argv.pop(0)
-
-    if len(argv) == 0:
-        argv.append("interactive" if sys.stdin.isatty() else "stdio")
-
-    parsed_argv = parser.parse_args(argv)
-    state = load_state()
-
-    if state is None:
-        return 1
-
-    api_keys_state_file, models, models_cache_updated, settings, editor_state_file = state
-
-    api_keys = collect_api_keys(api_keys_state_file)
-    editor = find_editor(editor_state_file)
-
-    ai_client_cls = {
-        "anthropic": AnthropicClient,
-        "deepseek": DeepSeekClient,
-        "google": GoogleClient,
-        "openai": OpenAiClient,
-        "perplexity": PerplexityClient,
-        "xai": XAiClient,
-    }
-
-    ai_clients = {
-        name: ai_client_cls[name](api_key)
-        for name, api_key in api_keys.items()
-        if name in ai_client_cls
-    }
-
-    models, models_cache_updated = ensure_up_to_date_models(
-        ai_clients,
-        models,
-        models_cache_updated
-    )
-
-    models_list = []
-
-    for provider, provider_models in models.items():
-        models_list.extend([f"{provider}/{model}" for model in provider_models])
-
-    messenger = AiMessenger(ai_clients, models_list)
-
-    apply_settings(messenger, settings)
-
-    if parsed_argv.command == "interactive":
-        info(f"Will use {editor!r} to edit conversations.")
-
-        init_question = " ".join(parsed_argv.question).strip()
-
-        ai_cmd = AiCmd(editor, messenger)
-
-        if len(init_question) > 0:
-            ai_cmd.do_ask(init_question)
-
-        ai_cmd.cmdloop()
-
-    elif parsed_argv.command == "stdio":
-        conversation_in = (
-            "\n".join(line.strip("\r\n") for line in sys.stdin.readlines())
-                .strip()
-        )
-
-        printer = WrappingPrinter()
-        printer.set_width(WrappingPrinter.get_wrapping_width())
-
-        for chunk in messenger.ask("", lambda conversation: conversation_in):
-            printer.print(chunk, end="", file=sys.stderr)
-
-        printer.print("", file=sys.stderr)
-
-        print(messenger.conversation_to_str())
-
-    settings = {
-        "model": messenger.get_model(),
-        "reasoning": messenger.get_reasoning(),
-        "streaming": messenger.get_streaming(),
-        "temperature": messenger.get_temperature(),
-    }
+    exit_code = 0
 
     try:
-        save_state(
-            api_keys_state_file,
-            models,
-            models_cache_updated,
-            settings,
-            editor_state_file,
+        parser = argparse.ArgumentParser(
+            prog="ai-cat.py",
+            description="A simple and stupid, Vim-friendly, Markdown-based command-line client for popular LLM AI chatbot APIs.",
+        )
+        subparsers = parser.add_subparsers(dest="command", required=True)
+
+        interactive_parser = subparsers.add_parser(
+            "interactive",
+            help="Interactive mode. (The default when stdin is a TTY.)"
+        )
+        interactive_parser.add_argument(
+            "question",
+            nargs=argparse.REMAINDER,
+            help="First question to ask.",
         )
 
-    except Exception as exc:
-        error(f"Unable to save state in {STATE_FILE_NAME}: {type(exc)}: {exc}")
+        stdio_parser = subparsers.add_parser(
+            "stdio",
+            help=(
+                "Read conversation from stdin, output response to stdout."
+                " (The default when stdin is not a TTY.)"
+            )
+        )
 
-    return 0
+        replace_parser = subparsers.add_parser(
+            "replace",
+            help=(
+                "Read lines from stdin, and using the given file name as"
+                " contextual information, suggest replacement lines on stdout,"
+                " or return 1 to indicate that the AI wants further"
+                " discussion. In either case, the first line on stdout will"
+                " be the name of a file which contains the entire conversation."
+            )
+        )
+        replace_parser.add_argument(
+            "file_name",
+            nargs=argparse.REMAINDER,
+            help="Name of the file in which the lines to be replaced appear.",
+        )
+
+        if len(argv) > 0:
+            argv.pop(0)
+
+        if len(argv) == 0:
+            argv.append("interactive" if sys.stdin.isatty() else "stdio")
+
+        parsed_argv = parser.parse_args(argv)
+        state = load_state()
+
+        if state is None:
+            return EXIT_CODE_ERROR
+
+        api_keys_state_file, models, models_cache_updated, settings, editor_state_file = state
+
+        api_keys = collect_api_keys(api_keys_state_file)
+        editor = find_editor(editor_state_file)
+
+        ai_client_cls = {
+            "anthropic": AnthropicClient,
+            "deepseek": DeepSeekClient,
+            "google": GoogleClient,
+            "openai": OpenAiClient,
+            "perplexity": PerplexityClient,
+            "xai": XAiClient,
+        }
+
+        ai_clients = {
+            name: ai_client_cls[name](api_key)
+            for name, api_key in api_keys.items()
+            if name in ai_client_cls
+        }
+
+        models, models_cache_updated = ensure_up_to_date_models(
+            ai_clients,
+            models,
+            models_cache_updated
+        )
+
+        models_list = []
+
+        for provider, provider_models in models.items():
+            models_list.extend([f"{provider}/{model}" for model in provider_models])
+
+        messenger = AiMessenger(ai_clients, models_list)
+
+        apply_settings(messenger, settings)
+
+        if parsed_argv.command == "interactive":
+            exit_code = cmd_interactive(messenger, parsed_argv.question, editor)
+
+        elif parsed_argv.command == "stdio":
+            exit_code = cmd_stdio(messenger)
+
+        elif parsed_argv.command == "replace":
+            exit_code = cmd_replace(messenger, parsed_argv.file_name)
+
+        settings = {
+            "model": messenger.get_model(),
+            "reasoning": messenger.get_reasoning(),
+            "streaming": messenger.get_streaming(),
+            "temperature": messenger.get_temperature(),
+        }
+
+        try:
+            save_state(
+                api_keys_state_file,
+                models,
+                models_cache_updated,
+                settings,
+                editor_state_file,
+            )
+
+        except Exception as exc:
+            error(f"Unable to save state in {STATE_FILE_NAME}: {type(exc)}: {exc}")
+
+    except Exception:
+        traceback.print_exc()
+
+        return EXIT_CODE_ERROR
+
+    return exit_code
 
 
 def info(message: str, end=os.linesep):
@@ -2133,6 +2177,10 @@ Available models:
             self._provider = parts[0]
             self._model = parts[1]
 
+    @property
+    def messages(self) -> tuple[Message]:
+        return tuple(Message(type=m.type, text=m.text) for m in self._messages)
+
     def init_conversation(self):
         self._messages = [
             Message(type=MessageType.SYSTEM, text=self._system_prompt),
@@ -2580,6 +2628,123 @@ def apply_settings(messenger: AiMessenger, settings: typing.Dict[str, typing.Any
         info(info_getter())
 
 
+def create_tmp_conv_file(dir: typing.Optional[str]=None, infix: str="") -> str:
+    if infix != "":
+        infix += "-"
+
+    now = datetime.datetime.now()
+    conv_file = tempfile.NamedTemporaryFile(
+        prefix=now.strftime(f"ai-{infix}%Y-%m-%d-%H-%M-%S-"),
+        dir=dir,
+        suffix=".md",
+        mode="w+",
+        delete=False,
+    )
+
+    return conv_file.name
+
+
+def cmd_interactive(
+        messenger: AiMessenger,
+        question_args: typing.List[str],
+        editor: str,
+) -> int:
+    info(f"Will use {editor!r} to edit conversations.")
+
+    init_question = " ".join(question_args).strip()
+
+    ai_cmd = AiCmd(editor, messenger)
+
+    if len(init_question) > 0:
+        ai_cmd.do_ask(init_question)
+
+    ai_cmd.cmdloop()
+
+    return 0
+
+
+def cmd_stdio(messenger: AiMessenger) -> int:
+    conversation_in = (
+        "\n".join(line.strip("\r\n") for line in sys.stdin.readlines()).strip()
+    )
+
+    printer = WrappingPrinter()
+    printer.set_width(WrappingPrinter.get_wrapping_width())
+
+    for chunk in messenger.ask("", lambda conversation: conversation_in):
+        printer.print(chunk, end="", file=sys.stderr)
+
+    printer.print("", file=sys.stderr)
+
+    print(messenger.conversation_to_str())
+
+    return 0
+
+
+def cmd_replace(
+        messenger: AiMessenger,
+        edited_file_name_args: typing.List[str],
+) -> int:
+    edited_file_name = " ".join(edited_file_name_args).strip()
+
+    if not edited_file_name:
+        edited_file_name = "untitled"
+
+    lines = (
+        "\n".join(line.strip("\r\n") for line in sys.stdin.readlines()).strip()
+    )
+    conversation_in = REPLACE_PROMPT.format(
+        FILE_NAME=edited_file_name,
+        LINES=lines,
+    )
+
+    printer = WrappingPrinter()
+    printer.set_width(WrappingPrinter.get_wrapping_width())
+
+    for chunk in messenger.ask("", lambda conversation: conversation_in):
+        printer.print(chunk, end="", file=sys.stderr)
+
+    printer.print("", file=sys.stderr)
+
+    conv_file_name = create_tmp_conv_file(infix="repl")
+    print(conv_file_name)
+
+    with open(conv_file_name, "w") as f:
+        print(messenger.conversation_to_str(), file=f)
+
+    ai_response = None
+    messages = messenger.messages
+
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].type == MessageType.AI:
+            ai_response = messages[i]
+
+            break
+
+    if ai_response is None:
+        return EXIT_CODE_REPLACE_FAIL
+
+    ai_lines = ai_response.text.splitlines()
+    begin_idx = None
+    end_idx = None
+
+    for idx, line in enumerate(ai_lines):
+        line_stripped = line.strip()
+
+        if begin_idx is None and line_stripped == "--- BEGIN REPLACEMENT ---":
+            begin_idx = idx
+
+        elif line_stripped == "--- END REPLACEMENT ---":
+            end_idx = idx
+
+    if begin_idx is None or end_idx is None or begin_idx >= end_idx:
+        return EXIT_CODE_REPLACE_FAIL
+
+    print("\n".join(ai_lines[begin_idx + 1:end_idx]))
+
+    return 0
+
+
 class AiCmd(cmd.Cmd):
     prompt = "AI> "
 
@@ -2727,15 +2892,7 @@ class AiCmd(cmd.Cmd):
         if self._conv_filename is not None:
             return False
 
-        now = datetime.datetime.now()
-        conv_file = tempfile.NamedTemporaryFile(
-            prefix=now.strftime("ai-%Y-%m-%d-%H-%M-%S-"),
-            dir=HOME_DIR_NAME,
-            suffix=".md",
-            mode="w+",
-            delete=False,
-        )
-        self._conv_filename = conv_file.name
+        self._conv_filename = create_tmp_conv_file(dir=HOME_DIR_NAME)
 
         return True
 
