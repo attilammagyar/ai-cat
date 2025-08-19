@@ -82,7 +82,7 @@ Features
     * [Perplexity (Sonar)](https://www.perplexity.ai/),
     * and [xAI (Grok)](https://x.ai/).
 
- * The **replace mode** (`ai-cat.py replace`) can be used for implementing a
+ * The **replace mode** (`ai-cat.py replace`) can be used for implementing
    simple and crude AI-aided code editing in Vim or any scriptable text editor:
 
     * the lines that are supplied over the standard input are sent to the AI,
