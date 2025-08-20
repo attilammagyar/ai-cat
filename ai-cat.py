@@ -222,37 +222,49 @@ all of them! Now go and act like you mean it!
 """
 
 
-# TODO: handle when the input contains block header lines.
+# TODO: handle when the replacement input or output contains block header lines
+#       and further discussion is requested by the LLM.
 REPLACE_PROMPT = """\
 # === User ===
 
-I am editing a file named {FILE_NAME}. I have selected the following lines in \
-my text editor (note that the selection is everything between the **very \
-first** `--- BEGIN SELECTION ---` marker line and the **very last** \
-`--- END SELECTION ---` marker line, even if either or both of them appear \
-within the selected text):
+I will give you a file name and a set of lines from that file which are \
+currently selected in my text editor. The selection is everything between the \
+**very first** `--- BEGIN SELECTION ---` marker line and the **very last** \
+`--- END SELECTION ---` marker line, even if either or both markers also \
+appear inside the selection.
+
+Your task:
+
+ * Carefully read these lines.
+ * Think about what needs to be done here, step-by-step.
+ * Briefly explain your reasoning.
+ * Show me the exact lines that should replace the entire selection.
+
+Use `--- BEGIN REPLACEMENT ---` and `--- END REPLACEMENT ---` lines for \
+marking the beginning and the end of your suggestion, similarly to how the \
+selection is provided below. **Mark your suggested replacement with exactly \
+these characters**, because a plugin in my editor will automatically replace \
+the selected lines with whatever appears between the very first \
+`--- BEGIN REPLACEMENT ---` marker and the very last `--- END REPLACEMENT ---` \
+marker.
+
+Therefore, it is crucial that you suggest **no more than one replacement**. If \
+you suggest none, however, then it will be interpreted by the plugin as your \
+way of indicating that you want to further discuss the problem before \
+providing a solution, e.g. due to insufficient or ambiguous information, or \
+because of the availability of multiple valid approaches with different \
+trade-offs, etc.
+
+Note that even when the plugin can successfully perform the replacement, your \
+reasoning and explanation will still be shown to me.
+
+File name: {FILE_NAME!r}
+
+Selected lines:
 
 --- BEGIN SELECTION ---
 {LINES}
 --- END SELECTION ---
-
-I want you to carefully read this snippet, think about what needs to be done \
-here, give a brief explanation about your solution, and then show me the exact \
-lines that should replace the entire selection in my text editor. Use \
-`--- BEGIN REPLACEMENT ---` and `--- END REPLACEMENT ---` lines for marking the \
-beginning and the end of your suggestion, similarly to the above. It is **very \
-important** that you mark your suggested replacement with exactly these \
-characters, because a plugin in my editor will automatically replace the \
-selected lines with the replacement that you suggest between the very first \
-`--- BEGIN REPLACEMENT ---` marker and the very last `--- END REPLACEMENT ---` \
-marker. Therefore, as you can see, it is also crucial that you write **no more \
-than one** suggested replacement. If you write none however, then it will be \
-interpreted by the plugin as you indicating that you want to further discuss \
-the problem before providing a solution, e.g. because insufficient information \
-was provided, or there are multiple potential solutions, each with their own \
-unique advantages and disadvantages, so we should decide together which way to \
-go, etc. (Note that even when the plugin can successfully do the \
-replacement, your reasoning and explanation will still be shown to me.)
 """
 
 
