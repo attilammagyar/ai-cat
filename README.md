@@ -30,7 +30,7 @@ EOF
 
 (`ai-cat` as in the name of the Unix/Linux tool
 [cat](https://en.wikipedia.org/wiki/Cat_%28Unix%29), because it
-_concatenates_ the AI's response to the end of the given conversation.)
+_concatenates_ the AI's response to the end of a conversation.)
 
 Demo
 ----
@@ -58,20 +58,44 @@ Features
    [sampling temperature](https://en.wikipedia.org/wiki/Softmax_function),
    reasoning, etc. Can switch models even in the middle of a conversation.
 
- * Allows editing the entire conversation, including the AI's responses.
-   (Useful for steering and nudging the autoregressive text generation process
-   if necessary.)
+ * Allows editing the entire conversation, including the AI's previous
+   responses. (Useful for steering and nudging the autoregressive text
+   generation process if necessary.)
 
  * Simple, Markdown-based syntax.
 
  * Works as a standalone interactive CLI app or as an stdin/stdout filter
-   that can be integrated nicely with other program (e.g. Vim):
+   that can be integrated nicely with other programs (e.g. Vim):
 
     * To use the **interactive mode**, run `ai-cat.py interactive` (this is the
       default when the standard input is a TTY).
 
     * To use the **filter mode**, run `ai-cat.py stdio` (this is the default
       when the standard input is not a TTY).
+
+    * The **replace mode** (`ai-cat.py replace`) can be used for implementing
+      simple and crude AI-aided code editing in  any scriptable text editor
+      (e.g. Vim):
+
+       * the lines that are supplied over the standard input are sent to the
+         AI,
+
+       * the model figures out what needs to be done (e.g. implement `TODO`
+         comments, add header docs, etc.),
+
+       * the result is printed to the standard output,
+
+       * the exit code tells how to process it:
+
+          * `0` means that the AI successfully generated a replacement for the
+            given lines.
+
+          * `1` means that the AI needs more information and wants to start a
+            discussion - in this case, the standard output will contain an
+            entire `ai-cat.py` conversation in Markdown.
+
+          * `2` and everything else means that an error occurred, check the
+            standard error for the details.
 
  * Can connect to the API of:
 
@@ -82,28 +106,6 @@ Features
     * [Perplexity (Sonar)](https://www.perplexity.ai/),
     * and [xAI (Grok)](https://x.ai/).
 
- * The **replace mode** (`ai-cat.py replace`) can be used for implementing
-   simple and crude AI-aided code editing in Vim or any scriptable text editor:
-
-    * the lines that are supplied over the standard input are sent to the AI,
-
-    * the model figures out what needs to be done (e.g. implement `TODO`
-      comments, etc.),
-
-    * the result is printed to the standard output,
-
-    * the exit code tells how to process it:
-
-       * `0` means that the AI successfully generated a replacement for the
-         given text.
-
-       * `1` means that the AI needs more information and wants to start a
-         discussion - in this case, the standard output contains an entire
-         `ai-cat.py` conversation in Markdown.
-
-       * `2` and everything else means that an error occurred, check the
-         standard error for the details.
-
 Dependencies
 ------------
 
@@ -112,13 +114,12 @@ None. Only built-in Python modules.
 Setting up before the first use
 -------------------------------
 
-Place `ai-cat.py` to a location where your system can find it and run it using
+Place `ai-cat.py` to a location where your system can find and run it using
 Python. Adjust your `PATH` variable if necessary.
 
 To use `ai-cat.py`, you need to generate an API key for at least one of the
 supported AI providers, and save it in `~/.ai-cat` (or
-`C:\Users\<NAME>\_ai-cat` on Windows) in the following format - delete the ones
-that you don't want to use:
+`C:\Users\<NAME>\_ai-cat` on Windows) in the following format:
 
 ```json
 {
@@ -133,7 +134,9 @@ that you don't want to use:
 }
 ```
 
-Alternatively, you can leave the `api_keys` field empty, and provide the API
+(Delete the ones that you don't want to use.)
+
+Alternatively, you can leave the `api_keys` object empty, and provide the API
 keys via the following environment variables as well:
 
  * `ANTHROPIC_API_KEY`,
@@ -145,10 +148,11 @@ keys via the following environment variables as well:
 
 The `EDITOR` environment variable can be used for customizing what text editor
 will be launched in interactive mode to edit the conversation before sending it
-to the AI for completion. Your preferred default editor (in case `EDITOR` is
-not set) can also be specified next to the API keys:
+to the AI for completion. Your preferred default editor (which will be sued
+when the `EDITOR` variable is not set) can also be specified next to the API
+keys:
 
-```json
+```
 {
   "api_keys": { ... },
   "editor": "vim"
@@ -220,7 +224,7 @@ blocks and settings overwrite each other.
 These are included only for convenience and as diagnostic information, but are
 never sent back to the AI.
 
-If `ai-cat.py` is used as a Unix filter and its standard input is empty, then
+If `ai-cat.py` is used in `stdio` mode and the standard input is empty, then
 it will generate an empty conversation template, including its default system
 prompt.
 
@@ -240,9 +244,9 @@ It also sets up a very minimalistic and crude code generator:
 
  * add to-do comments to a piece of code,
 
- * select all the relevant lines in visual mode,
+ * select all the relevant lines in Visual mode,
 
- * and press the `Tab` key to run them through `ai-cat.py` with the last used
+ * then press the `Tab` key to run them through `ai-cat.py` with the last used
    settings, and replace them automatically with the result.
 
 If the AI needs more information or otherwise fails to produce a usable
@@ -250,8 +254,8 @@ replacement for the selected lines, then the conversation is opened in a new
 tab for editing which then can be continued using the `:AI` command.
 
 The advantage of this approach is that you get precise manual control over what
-gets sent to the AI. The disadvantage is that you *have to precisely control
-manually what gets sent to the AI*. No context, no codebase indexing, no
+is sent to the AI. The disadvantage is that you *have to precisely control
+manually what is sent to the AI*. No context, no codebase indexing, no
 [LSP](https://en.wikipedia.org/wiki/Language_Server_Protocol) integration, no
 nothing.
 
@@ -413,7 +417,7 @@ lines between the first Markdown code fence above and below the cursor. (The
 `SelectBetweenMarkdownFences()` function.)
 
 ```vim
-" Pressing I (Shift+i) in visual mode will select everything between the
+" Pressing I (Shift+i) in Visual mode will select everything between the
 " previous and the next Markdown code fence. (Does not handle code blocks
 " that are nested inside other elements like list items or block quotes.)
 function! SelectBetweenMarkdownFences()
