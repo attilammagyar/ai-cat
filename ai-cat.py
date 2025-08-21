@@ -2382,8 +2382,15 @@ Available models:
         system_prompt_lines = []
         messages = []
 
+        message_types = {
+            "settings": MessageType.SETTINGS,
+            "user": MessageType.USER,
+            "ai reasoning": MessageType.AI_REASONING,
+            "ai": MessageType.AI,
+            "ai status": MessageType.AI_STATUS,
+        }
+
         action = "skip"
-        message_type = None
         inside_code = False
 
         for line in text.splitlines():
@@ -2410,28 +2417,14 @@ Available models:
                 system_prompt_lines = []
                 action = "append_system"
 
-            elif new_block_type == "settings":
-                action = "append"
-                message_type = MessageType.SETTINGS
-
-            elif new_block_type == "user":
-                action = "append"
-                message_type = MessageType.USER
-
-            elif new_block_type == "ai reasoning":
-                action = "append"
-                message_type = MessageType.AI_REASONING
-
-            elif new_block_type == "ai":
-                action = "append"
-                message_type = MessageType.AI
-
-            elif new_block_type == "ai status":
-                action = "append"
-                message_type = MessageType.AI_STATUS
-
             elif new_block_type == "notes":
                 action = "skip"
+
+            elif new_block_type in message_types:
+                action = "append"
+                messages.append(
+                    Message(type=message_types[new_block_type], text="")
+                )
 
             elif new_block_type is not None:
                 raise ValueError("Unknown block: " + block_header_match[1])
@@ -2440,9 +2433,6 @@ Available models:
                 system_prompt_lines.append(line)
 
             elif action == "append":
-                if len(messages) == 0 or messages[-1].type != message_type:
-                    messages.append(Message(type=message_type, text=""))
-
                 messages[-1].text += line + "\n"
 
             elif action == "skip":

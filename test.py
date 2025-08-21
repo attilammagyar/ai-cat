@@ -518,7 +518,7 @@ What is The Answer?
             ai_client.conversation,
         )
 
-    def test_when_a_conversation_has_multile_system_prompts_then_only_the_last_one_is_used(self):
+    def test_when_a_conversation_has_multile_system_prompts_then_only_the_last_one_is_kept(self):
         edited_conversation = """\
 # === System ===
 
@@ -1053,6 +1053,116 @@ Temperature: 0.0
         self.assertEqual(expected_conversation + expected_settings_2, conv_2)
         self.assertEqual(expected_conversation + expected_settings_3, conv_3)
         self.assertEqual(expected_conversation + expected_settings_4, conv_4)
+
+    def test_parsing_keeps_blocks_boundaries_as_they_were_supplied_except_for_multiple_system_prompts(self):
+        conversation = """\
+# === System ===
+
+System 2
+
+
+# === Settings ===
+
+Model: fake/model1
+
+
+# === Settings ===
+
+Model: fake/model2
+
+
+# === User ===
+
+User 1
+
+
+# === User ===
+
+User 2
+
+
+# === AI Reasoning ===
+
+Reasoning 1
+
+
+# === AI Reasoning ===
+
+Reasoning 2
+
+
+# === AI ===
+
+AI 1
+
+
+# === AI ===
+
+AI 2
+
+
+# === AI Status ===
+
+Status 1
+
+
+# === AI Status ===
+
+Status 2
+
+
+# === User ===
+
+User 3
+"""
+        edited_conversation = f"""
+# === System ===
+
+System 1
+
+
+# === Notes ===
+
+Note 1
+
+
+# === Notes ===
+
+Note 2
+
+
+{conversation}\
+"""
+
+        ai_messenger, ai_client, response_chunks = self.ask(
+            conversation,
+            [
+                [
+                    ai_cat.AiResponse(is_delta=False, is_reasoning=False, is_status=False, text="AI 3"),
+                ],
+            ],
+        )
+
+        expected_conversation = self.NOTES + "\n\n" + conversation + """
+
+# === AI ===
+
+AI 3
+"""
+
+        self.assertEqual("model2", ai_client.model)
+        self.assertEqual(
+            [
+                ai_cat.Message(type=ai_cat.MessageType.SYSTEM, text="System 2"),
+                ai_cat.Message(type=ai_cat.MessageType.USER, text="User 1"),
+                ai_cat.Message(type=ai_cat.MessageType.USER, text="User 2"),
+                ai_cat.Message(type=ai_cat.MessageType.AI, text="AI 1"),
+                ai_cat.Message(type=ai_cat.MessageType.AI, text="AI 2"),
+                ai_cat.Message(type=ai_cat.MessageType.USER, text="User 3"),
+            ],
+            ai_client.conversation,
+        )
+        self.assertEqual(expected_conversation, ai_messenger.conversation_to_str())
 
 
 class FakeAiClient(ai_cat.AiClient):
