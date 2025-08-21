@@ -385,9 +385,8 @@ function! AICatTabReplace() range
     let l:output = system(l:ai_cat_cmd, l:input)
 
     if v:shell_error != 0
-        redraw!
-
         if v:shell_error == 1
+            redraw!
             tabnew
             set filetype=markdown
             call append(0, split(l:output, "\n", 1))
@@ -397,6 +396,8 @@ function! AICatTabReplace() range
         endif
 
         echohl ErrorMsg | echo "Error running ai-cat.py" | echohl None
+        call input("", "Press ENTER to continue.")
+        redraw!
         return
     endif
 
