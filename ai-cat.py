@@ -222,6 +222,11 @@ all of them! Now go and act like you mean it!
 """
 
 
+# Note: Starting a new User block right before the file name would probably
+#       improve the cache-friendliness, however, it risks breakage if there are
+#       (or will be) models where the APIs require alternating roles (e.g.
+#       Perplexity's models as of August, 2025).
+#
 # TODO: handle when the replacement input or output contains block header lines
 #       and further discussion is requested by the LLM.
 REPLACE_PROMPT = """\
