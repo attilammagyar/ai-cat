@@ -457,9 +457,9 @@ But why?
 
 It's intended to solve my complaints against existing solutions:
 
-1. I'm not a fan of digital feudalism and the subscription based economy, and I
-   avoid it like the plague. Prepaid API credits are somewhat closer to my
-   heart.
+1. I'm not a fan of digital feudalism and the renting or subscription based
+   economy, and I avoid it like the plague. Prepaid API credits and
+   pay-as-you-go are somewhat closer to my heart.
 
 2. GUIs and agents: limited to no control over model selection, system prompt,
    etc.
