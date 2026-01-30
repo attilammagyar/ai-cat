@@ -50,10 +50,6 @@ Demo
 Features
 --------
 
- * A default system prompt which sets up a sassy, wisecracking AI assistant
-   that has a knack for programming and [STEM](https://en.wikipedia.org/wiki/Science,_technology,_engineering,_and_mathematics)
-   problem solving.
-
  * Precise control over model selection,
    [sampling temperature](https://en.wikipedia.org/wiki/Softmax_function),
    reasoning, etc. Can switch models even in the middle of a conversation.
@@ -158,6 +154,12 @@ keys:
   "editor": "vim"
 }
 ```
+
+Put your custom system prompt in a a file named `~/.ai-cat-sys.txt` (or
+`C:\Users\<NAME>\_ai-cat-sys.txt` on Windows). See `snarky-sys.txt` for a
+system prompt which sets up a sassy, wisecracking AI assistant that has a knack
+for programming and [STEM](https://en.wikipedia.org/wiki/Science,_technology,_engineering,_and_mathematics)
+problem solving.
 
 Conversation syntax
 -------------------
