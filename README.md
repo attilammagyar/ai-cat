@@ -233,27 +233,24 @@ prompt.
 Vim integration
 ---------------
 
-### Chat and code editing
+Place the [aicatpy.vim](https://github.com/attilammagyar/ai-cat/blob/main/aicatpy.vim)
+file in your Vim plugins directory (usually `~/.vim/plugin/` on Unix-like
+systems) to add some AI features to Vim (make sure that your `PATH` variable is
+set up so that `ai-cat.py` can be run):
 
-The `~/.vimrc` snippet below (or `_vimrc` for Windows users) sets up the
-`:AI` command to either initialize a new conversation or run an existing one
-through `ai-cat.py`, depending on the contents of the current buffer. (Make
-sure that your `PATH` is set up correctly so that `ai-cat.py` can be run, or
-adjust the snippet to fit your environment.) It works best when Vim is running
-in a terminal.
+ * The `:AI` command will either initialize a new conversation or run an
+   existing one through `ai-cat.py`, depending on the contents of the current
+   buffer. (Note: it works best when Vim is running in a terminal.)
 
-It also sets up a very minimalistic and crude code generator:
+ * The `<TAB>` key will run the selected code through `ai-cat.py` with the last
+   used `ai-cat.py` settings and replace the selection with the results.
 
- * add to-do comments to a piece of code,
+   Example use case: add to-do comments and instructions to a function
+   declaration, then let the AI implement it.
 
- * select all the relevant lines in Visual mode,
-
- * then press the `Tab` key to run them through `ai-cat.py` with the last used
-   settings, and replace them automatically with the result.
-
-If the AI needs more information or otherwise fails to produce a usable
-replacement for the selected lines, then the conversation is opened in a new
-tab for editing which then can be continued using the `:AI` command.
+   If the AI fails to produce a suitable replacement or there are conflicting
+   modifications in the buffer while the AI is working, then the results are
+   opened in a new tab so you can decide how to proceed with them.
 
 The advantage of this approach is that you get precise manual control over what
 is sent to the AI. The disadvantage is that you *have to precisely control
@@ -261,163 +258,13 @@ manually what is sent to the AI*. No context, no codebase indexing, no
 [LSP](https://en.wikipedia.org/wiki/Language_Server_Protocol) integration, no
 nothing.
 
-```vim
-function! AICatCmd(args)
-    let l:console_file = "/dev/tty"
-
-    if has("win32")
-        " The redirection to the special console file doesn't work in gVim,
-        " so there will be no streaming. At least, it works in a terminal based
-        " vim.exe.
-        let l:console_file = "CON"
-    endif
-
-    " The command will replace the buffer with the stdout while displaying its
-    " stderr in the terminal.
-    return "ai-cat.py " . a:args . " 2>" . l:console_file
-endfunction
-
-" The :AI command will run the current buffer through ai-cat.py (must be on
-" PATH) in order to generate a continuation if it looks like an already
-" established ai-cat.py conversation, otherwise it will initialize a new
-" conversation in a new tab.
-function! AICat()
-    let l:ai_cat_cmd = "%!" . AICatCmd("stdio")
-    let l:cursor_position = getpos(".")
-
-    " Does the currently edited buffer's name look like an ai-cat.py
-    " conversation? If the name is empty or ends with .md, then it does.
-    let l:may_be_ai_conversation = (expand("%") =~ "^\\(.*\\.md\\)\\?$")
-
-    " Is the buffer an already initialized, ongoing ai-act.py conversation?
-    " If it contains block header lines used by ai-act.py, then it is.
-    let l:is_ai_conversation = 0
-
-    if l:may_be_ai_conversation
-        for l:line_num in range(1, line("$"))
-            if getline(l:line_num) =~ "^# === .* ===\\r\\?$"
-                let l:is_ai_conversation = 1
-                break
-            endif
-        endfor
-    endif
-
-    if l:is_ai_conversation
-        " Run the conversation through ai-cat, and put the cursor at the
-        " beginning of the last AI, AI Reasoning, or User block or to the end
-        " if none of them can be found.
-
-        echohl None | echo "Waiting for AI..."
-
-        execute l:ai_cat_cmd
-
-        if v:shell_error != 0
-            undo
-            call setpos(".", l:cursor_position)
-            return
-        endif
-
-        redraw!
-
-        call AIJumpToRelevantBlock()
-    else
-        " Need to initialize a new conversaion - since this will overwrite the
-        " entire buffer, we do it in a new tab if the current one is not empty
-        " or its name doesn't look like an ai-cat.py conversaion.
-
-        if line("$") != 1 || getline(1) != "" || !l:may_be_ai_conversation
-            tabnew
-        endif
-
-        echohl None | echo "Initializing conversation..."
-
-        execute l:ai_cat_cmd
-        set filetype=markdown
-
-        if v:shell_error != 0
-            undo
-            return
-        endif
-
-        redraw!
-        normal! G
-        startinsert
-    endif
-endfunction
-command! -nargs=0 AI call AICat()
-
-function! AIJumpToRelevantBlock()
-    let l:response_pos = 0
-
-    for l:line_num in range(line("$"), 1, -1)
-        if getline(l:line_num) =~ "^# === \\(AI\\( Reasoning\\)*\\|User\\) ===\\r\\?$"
-            let l:response_pos = l:line_num
-            break
-        endif
-    endfor
-
-    if l:response_pos > 0
-        call cursor(l:response_pos, 1)
-    else
-        normal! G
-    endif
-endfunction
-
-" Add to-do comments to a piece of code, select the relevant lines, then press
-" the Tab key to run them through the last used AI in ai-cat.py. If the AI
-" requests more information or otherwise fails to produce a usable replacement,
-" then the conversation is opened in a new tab for editing. From there, the
-" `:AI` command can be used to continue it. (See above.)
-"
-" NOTE: only the selected lines and the name of the edited file are sent to the
-"       AI, so make sure that they contain all the necessary information.
-function! AICatTabReplace() range
-    let l:begin_line = line("'<")
-    let l:end_line = line("'>")
-
-    if l:begin_line == 0 || l:end_line == 0
-        echohl ErrorMsg | echo "Select the lines first to be replaced by AI." | echohl None
-        return
-    endif
-
-    echohl None | echo "Waiting for AI..."
-
-    let l:ai_cat_cmd = AICatCmd("replace " . shellescape(expand("%")))
-    let l:input = join(getline(l:begin_line, l:end_line), "\n") . "\n"
-    let l:output = system(l:ai_cat_cmd, l:input)
-
-    if v:shell_error != 0
-        if v:shell_error == 1
-            redraw!
-            tabnew
-            set filetype=markdown
-            call append(0, split(l:output, "\n", 1))
-            call AIJumpToRelevantBlock()
-            echo "The AI needs more info, use :AI to continue the conversation"
-            return
-        endif
-
-        echohl ErrorMsg | echo "Error running ai-cat.py" | echohl None
-        call input("", "Press ENTER to continue.")
-        redraw!
-        return
-    endif
-
-    execute l:begin_line . "," . l:end_line . "delete _"
-    call append(l:begin_line - 1, split(l:output, "\n", 1))
-    execute "normal! " . l:begin_line . "G"
-    redraw!
-endfunction
-xnoremap <silent> <Tab> :call AICatTabReplace()<CR>
-```
-
 ### Select text between Markdown code fences
 
-When using AI for coding, the Vimscript snippet below may also be useful:
-the `vI` (`v` followed by Shift + `i`) hotkey in Normal mode will select all
-lines between the first Markdown code fence above and below the cursor. (The
-`v` key triggers Visual mode, the `I` key calls the
-`SelectBetweenMarkdownFences()` function.)
+When working with Markdown and code snippets, the `.vimrc` (or `_vimrc` for
+Windows users) snippet below may also be useful: the `vI` (`v` followed by
+Shift + `i`) hotkey in Normal mode will select all lines between the first
+Markdown code fence above and below the cursor.  (The `v` key triggers Visual
+mode, the `I` key calls the `SelectBetweenMarkdownFences()` function.)
 
 ```vim
 " Pressing I (Shift+i) in Visual mode will select everything between the
