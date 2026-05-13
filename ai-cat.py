@@ -80,6 +80,7 @@ ENV_VAR_NAMES = {
     "anthropic": "ANTHROPIC_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "google": "GEMINI_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
     "openai": "OPENAI_API_KEY",
     "perplexity": "PERPLEXITY_API_KEY",
     "xai": "XAI_API_KEY",
@@ -93,6 +94,9 @@ DEFAULT_MODEL_RE = (
     re.compile(r"^perplexity/sonar.*$"),
     re.compile(r"^perplexity/sonar-pro$"),
     re.compile(r"^perplexity/sonar-reasoning-pro$"),
+    re.compile(r"^mistral/mistral-small-latest$"),
+    re.compile(r"^mistral/mistral-medium-latest$"),
+    re.compile(r"^mistral/mistral-large-latest$"),
     re.compile(r"^deepseek/deepseek.*$"),
     re.compile(r"^deepseek/deepseek-chat$"),
     re.compile(r"^anthropic/claude.*$"),
@@ -225,6 +229,7 @@ def main(argv):
             "anthropic": AnthropicClient,
             "deepseek": DeepSeekClient,
             "google": GoogleClient,
+            "mistral": MistralClient,
             "openai": OpenAiClient,
             "perplexity": PerplexityClient,
             "xai": XAiClient,
@@ -1215,6 +1220,172 @@ class GoogleClient(AiClient):
 
                 yield from responses
 
+
+class MistralClient(AiClient):
+    # https://docs.mistral.ai/api/endpoint/chat
+    # https://docs.mistral.ai/api/endpoint/models
+
+    URL_CHAT = "https://api.mistral.ai/v1/chat/completions"
+    URL_MODELS = "https://api.mistral.ai/v1/models"
+
+    STATUS_PATHS = (
+        "usage.prompt_tokens",
+        "usage.total_tokens",
+        "usage.completion_tokens",
+        "usage.prompt_token_details.cached_tokens",
+        "finish_reason",
+    )
+
+    def list_models(self) -> collections.abc.Sequence[str]:
+        raw_response = self.http_request(
+            "GET",
+            self.URL_MODELS,
+            headers=self._build_request_headers(),
+        )
+        response = json.loads(raw_response)
+
+        return [
+            model["id"]
+            for model in get_item(response, "data", [])
+        ]
+
+    def respond(
+            self,
+            model: str,
+            conversation: typing.Iterator[Message],
+            temperature: float,
+            reasoning: Reasoning,
+    ) -> typing.Iterator[AiResponse]:
+        headers, body = self._build_request(
+            model,
+            conversation,
+            temperature,
+            reasoning,
+            stream=False,
+        )
+        response = self.http_request("POST", self.URL_CHAT, headers, body)
+        status = {}
+
+        yield from self._process_response(response, "message", status, is_delta=False)
+        yield from self.compile_status(status)
+
+    def respond_streaming(
+            self,
+            model: str,
+            conversation: typing.Iterator[Message],
+            temperature: float,
+            reasoning: Reasoning,
+    ) -> typing.Iterator[AiResponse]:
+        headers, body = self._build_request(
+            model,
+            conversation,
+            temperature,
+            reasoning,
+            stream=True,
+        )
+        status = {}
+
+        for event_type, data_bytes in self.http_sse("POST", self.URL_CHAT, headers, body):
+            yield from self._process_response(data_bytes, "delta", status, is_delta=True)
+
+        yield from self.compile_status(status)
+
+    def _build_request_headers(self):
+        return {
+            "Authorization": "Bearer " + self._api_key,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+    def _build_request(self, model, conversation, temperature, reasoning, stream):
+        body = {
+            "model": model,
+            "temperature": temperature,
+            "messages": self._convert_conversation(conversation),
+            "safe_prompt": False,
+            "stream": stream,
+        }
+
+        if reasoning == Reasoning.ON:
+            body["reasoning_effort"] = "high"
+
+        return self._build_request_headers(), json.dumps(body).encode("utf-8")
+
+    def _convert_conversation(self, conversation):
+        roles = {
+            MessageType.SYSTEM: "system",
+            MessageType.USER: "user",
+            MessageType.AI: "assistant",
+        }
+
+        return [
+            {
+                "role": roles.get(message.type, "user"),
+                "content": message.text,
+            }
+            for message in conversation
+        ]
+
+    def _process_response(
+            self,
+            response_bytes: bytes,
+            path: str,
+            status: typing.Dict[str, typing.Any],
+            is_delta: bool,
+    ) -> typing.Iterator[AiResponse]:
+        try:
+            response = json.loads(response_bytes)
+
+        except json.JSONDecodeError:
+            pass
+
+        else:
+            status.update(self.extract_status(response, self.STATUS_PATHS))
+
+            for output in get_item(response, "choices", []):
+                role = get_item(output, path + ".role", "assistant")
+
+                if role != "assistant":
+                    continue
+
+                content = get_item(output, path + ".content", "")
+                status.update(self.extract_status(output, self.STATUS_PATHS))
+
+                if isinstance(content, str):
+                    if content != "":
+                        yield AiResponse(
+                            is_delta=is_delta,
+                            is_reasoning=False,
+                            is_status=False,
+                            text=content,
+                        )
+                elif isinstance(content, collections.abc.Sequence):
+                    for item in content:
+                        item_type = get_item(item, "type")
+
+                        if item_type == "text":
+                            text = get_item(item, "text", "")
+
+                            if text != "":
+                                yield AiResponse(
+                                    is_delta=is_delta,
+                                    is_reasoning=False,
+                                    is_status=False,
+                                    text=text,
+                                )
+
+                        elif item_type == "thinking":
+                            for thinking in get_item(item, "thinking", []):
+                                if get_item(thinking, "type", "") == "text":
+                                    text = get_item(thinking, "text", "")
+
+                                    if text != "":
+                                        yield AiResponse(
+                                            is_delta=is_delta,
+                                            is_reasoning=True,
+                                            is_status=False,
+                                            text=text,
+                                        )
 
 class OpenAiClient(AiClient):
     # https://platform.openai.com/docs/guides/text?api-mode=responses
