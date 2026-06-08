@@ -58,6 +58,9 @@ import typing
 import urllib.parse
 
 
+is_quiet = False
+
+
 IS_WINDOWS = platform.system() == "Windows"
 
 HOME_DIR_NAME = os.path.expanduser("~")
@@ -165,6 +168,8 @@ Selected lines:
 
 
 def main(argv):
+    global is_quiet
+
     exit_code = 0
 
     try:
@@ -172,7 +177,14 @@ def main(argv):
             prog="ai-cat.py",
             description="A simple and stupid, Vim-friendly, Markdown-based command-line client for popular LLM AI chatbot APIs.",
         )
-        subparsers = parser.add_subparsers(dest="command", required=True)
+        parser.add_argument(
+            "-q",
+            "--quiet",
+            action="store_true",
+            dest="quiet",
+            help="Suppress all informational output.",
+        )
+        subparsers = parser.add_subparsers(dest="command")
 
         interactive_parser = subparsers.add_parser(
             "interactive",
@@ -211,10 +223,11 @@ def main(argv):
         if len(argv) > 0:
             argv.pop(0)
 
-        if len(argv) == 0:
-            argv.append("interactive" if sys.stdin.isatty() else "stdio")
-
         parsed_argv = parser.parse_args(argv)
+
+        if parsed_argv.quiet:
+            is_quiet = True
+
         state = load_state()
 
         if state is None:
@@ -256,13 +269,18 @@ def main(argv):
 
         apply_settings(messenger, settings)
 
-        if parsed_argv.command == "interactive":
+        command = parsed_argv.command
+
+        if command is None:
+            command = "interactive" if sys.stdin.isatty() else "stdio"
+
+        if command == "interactive":
             exit_code = cmd_interactive(messenger, parsed_argv.question, editor)
 
-        elif parsed_argv.command == "stdio":
+        elif command == "stdio":
             exit_code = cmd_stdio(messenger)
 
-        elif parsed_argv.command == "replace":
+        elif command == "replace":
             exit_code = cmd_replace(messenger, parsed_argv.file_name)
 
         settings = {
@@ -293,11 +311,14 @@ def main(argv):
 
 
 def info(message: str, end=os.linesep):
+    if is_quiet:
+        return
+
     print(message, end=end, file=sys.stderr)
 
 
 def error(message: str):
-    info(message)
+    print(message, file=sys.stderr)
 
 
 class WrappingPrinter:
@@ -2759,15 +2780,7 @@ def cmd_stdio(messenger: AiMessenger) -> int:
     conversation_in = (
         "\n".join(line.strip("\r\n") for line in sys.stdin.readlines()).strip()
     )
-
-    printer = WrappingPrinter()
-    printer.set_width(WrappingPrinter.get_wrapping_width())
-
-    for chunk in messenger.ask("", lambda conversation: conversation_in):
-        printer.print(chunk, end="", file=sys.stderr)
-
-    printer.print("", file=sys.stderr)
-
+    continue_conversation(messenger, conversation_in)
     print(messenger.conversation_to_str())
 
     return 0
@@ -2789,14 +2802,7 @@ def cmd_replace(
         FILE_NAME=edited_file_name,
         LINES=lines,
     )
-
-    printer = WrappingPrinter()
-    printer.set_width(WrappingPrinter.get_wrapping_width())
-
-    for chunk in messenger.ask("", lambda conversation: conversation_in):
-        printer.print(chunk, end="", file=sys.stderr)
-
-    printer.print("", file=sys.stderr)
+    continue_conversation(messenger, conversation_in)
 
     ai_response = None
     messages = messenger.messages
@@ -2833,6 +2839,24 @@ def cmd_replace(
     print("\n".join(ai_lines[begin_idx + 1:end_idx]))
 
     return 0
+
+
+def continue_conversation(messenger: AiMessenger, conversation_in: str):
+    generator = messenger.ask("", lambda conversation: conversation_in)
+
+    if is_quiet:
+        for _ in generator:
+            pass
+
+        return
+
+    printer = WrappingPrinter()
+    printer.set_width(WrappingPrinter.get_wrapping_width())
+
+    for chunk in generator:
+        printer.print(chunk, end="", file=sys.stderr)
+
+    printer.print("", file=sys.stderr)
 
 
 class AiCmd(cmd.Cmd):
