@@ -2771,7 +2771,7 @@ def cmd_interactive(
         question_args: typing.List[str],
         editor: str,
 ) -> int:
-    info(f"Will use {editor!r} to edit conversations.")
+    info(f"Using {editor!r} to edit conversations.")
 
     init_question = " ".join(question_args).strip()
 
