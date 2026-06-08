@@ -184,6 +184,13 @@ def main(argv):
             dest="quiet",
             help="Suppress all informational output.",
         )
+        parser.add_argument(
+            "-o",
+            "--response-only",
+            action="store_true",
+            dest="response_only",
+            help="Do not output the entire conversation in stdio mode, show only the AI's response.",
+        )
         subparsers = parser.add_subparsers(dest="command")
 
         interactive_parser = subparsers.add_parser(
@@ -279,7 +286,8 @@ def main(argv):
             exit_code = cmd_interactive(messenger, question, editor)
 
         elif command == "stdio":
-            exit_code = cmd_stdio(messenger)
+            response_only = getattr(parsed_argv, "response_only", False)
+            exit_code = cmd_stdio(messenger, response_only)
 
         elif command == "replace":
             exit_code = cmd_replace(messenger, parsed_argv.file_name)
@@ -2777,12 +2785,17 @@ def cmd_interactive(
     return 0
 
 
-def cmd_stdio(messenger: AiMessenger) -> int:
+def cmd_stdio(messenger: AiMessenger, response_only: bool) -> int:
     conversation_in = (
         "\n".join(line.strip("\r\n") for line in sys.stdin.readlines()).strip()
     )
     continue_conversation(messenger, conversation_in)
-    print(messenger.conversation_to_str())
+
+    if response_only:
+        ai_response = find_last_ai_response(messenger)
+        print(ai_response.text)
+    else:
+        print(messenger.conversation_to_str())
 
     return 0
 
@@ -2804,15 +2817,7 @@ def cmd_replace(
         LINES=lines,
     )
     continue_conversation(messenger, conversation_in)
-
-    ai_response = None
-    messages = messenger.messages
-
-    for i in range(len(messages) - 1, -1, -1):
-        if messages[i].type == MessageType.AI:
-            ai_response = messages[i]
-
-            break
+    ai_response = find_last_ai_response(messenger)
 
     if ai_response is None:
         print(messenger.conversation_to_str())
@@ -2858,6 +2863,16 @@ def continue_conversation(messenger: AiMessenger, conversation_in: str):
         printer.print(chunk, end="", file=sys.stderr)
 
     printer.print("", file=sys.stderr)
+
+
+def find_last_ai_response(messenger: AiMessenger) -> typing.Optional[Message]:
+    messages = messenger.messages
+
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].type == MessageType.AI:
+            return messages[i]
+
+    return None
 
 
 class AiCmd(cmd.Cmd):
