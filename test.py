@@ -110,7 +110,8 @@ And what is The Answer?"""
         ai_client = FakeAiClient(responses)
         ai_messenger = ai_cat.AiMessenger(
             {"fake": ai_client},
-            [f"fake/{model}" for model in ai_client.list_models()]
+            [f"fake/{model}" for model in ai_client.list_models()],
+            system_prompt="Please act as a helpful AI assistant.",
         )
 
         return (ai_messenger, ai_client)
