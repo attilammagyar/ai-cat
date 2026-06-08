@@ -991,6 +991,12 @@ class DeepSeekClient(AiClient):
             "stream": stream,
         }
 
+        if reasoning == Reasoning.OFF:
+            body["thinking"] = {"type": "disabled"}
+        elif reasoning == Reasoning.ON:
+            body["thinking"] = {"type": "enabled"}
+            body["reasoning_effort"] = "high"
+
         return self._build_request_headers(), json.dumps(body).encode("utf-8")
 
     def _convert_conversation(self, conversation):
