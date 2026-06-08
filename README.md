@@ -233,8 +233,8 @@ If `ai-cat.py` is used in `stdio` mode and the standard input is empty, then
 it will generate an empty conversation template, including its default system
 prompt.
 
-As a standard Unix filter
--------------------------
+Unix filter
+-----------
 
 Use the `--quiet` (or `-q`) and the `--response-only` (or `-o`) flags to read a
 conversation from the standard input and output only the AI's response to the
