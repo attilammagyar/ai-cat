@@ -275,7 +275,8 @@ def main(argv):
             command = "interactive" if sys.stdin.isatty() else "stdio"
 
         if command == "interactive":
-            exit_code = cmd_interactive(messenger, parsed_argv.question, editor)
+            question = getattr(parsed_argv, "question", "")
+            exit_code = cmd_interactive(messenger, question, editor)
 
         elif command == "stdio":
             exit_code = cmd_stdio(messenger)
