@@ -550,9 +550,7 @@ class FileHttpLogger(HttpLogger):
 
 
 class AiClient:
-    def __init__(self, api_key: str):
-        self._api_key = api_key
-
+    def __init__(self):
         self.http_logger = NoOpHttpLogger()
 
     def list_models(self) -> collections.abc.Sequence[str]:
@@ -690,17 +688,419 @@ class AiClient:
             )
 
 
-# Some of the following AiClient implementations are very similar to each other,
-# and while I'm aware of the DRY-principle (Don't Repeat Yourself), I'm also
-# aware of the DNAHCTTSC-principle (Do Not Apply Huffman-Coding To The Source
-# Code): since each provider already has their own set of unique little quirks,
-# it is not unreasonable to expect that they will keep diverging from each other
-# on the long run, making it more and more difficult to unify them under a
-# a single, sensible AI-provider-based abstraction layer, or to untangle them
-# when such a layer snaps. Therefore, at least for now, the central abstraction
-# here will remain defined in terms of the needs of AiMessenger, and the
-# surface-level similarities between the concrete AiClient implementations will
-# be kept as is.
+class OpenAiCompatibleClientFlavor:
+    def __init__(
+            self,
+            ai_client,
+            roles: typing.Dict[str, str],
+    ):
+        self._ai_client = ai_client
+        self._roles = roles
+
+    def build_request_body(
+            self, model, conversation, temperature, reasoning, stream
+    ) -> typing.Dict:
+        raise NotImplementedError()
+
+    def _convert_conversation(self, conversation):
+        return [
+            {
+                "role": self._roles.get(message.type, "user"),
+                "content": message.text,
+            }
+            for message in conversation
+        ]
+
+    def process_complete_response(
+            self,
+            response_bytes: str,
+            status: typing.Dict[str, typing.Any],
+    ) -> typing.Iterator[AiResponse]:
+        yield from self._process_complete_response(response_bytes, ".", status)
+
+    def _process_complete_response(
+            self,
+            response_bytes: str,
+            path: str,
+            status: typing.Dict[str, typing.Any],
+    ) -> typing.Iterator[AiResponse]:
+        raise NotImplementedError()
+
+    def process_stream_event(
+            self,
+            event_type: str,
+            data_bytes: str,
+            status: typing.Dict[str, str],
+    ) -> typing.Iterator[AiResponse]:
+        raise NotImplementedError()
+
+
+class OpenAiCompatibleClientChatFlavor(OpenAiCompatibleClientFlavor):
+    def build_request_body(
+            self, model, conversation, temperature, reasoning, stream
+    ) -> typing.Dict:
+        body = {
+            "model": model,
+            "temperature": temperature,
+            "messages": self._convert_conversation(conversation),
+            "stream": stream,
+        }
+
+        if reasoning == Reasoning.ON:
+            body["reasoning_effort"] = "medium"
+
+        return body
+
+    def _process_complete_response(
+            self,
+            response_bytes: str,
+            path: str,
+            status: typing.Dict[str, typing.Any],
+    ) -> typing.Iterator[AiResponse]:
+        yield from self._process_response(
+            response_bytes, "message", status, is_delta=False,
+        )
+
+    def _process_response(
+            self,
+            response_bytes: str,
+            path: str,
+            status: typing.Dict[str, typing.Any],
+            is_delta: bool,
+    ) -> typing.Iterator[AiResponse]:
+        try:
+            response = json.loads(response_bytes)
+
+        except json.JSONDecodeError:
+            pass
+
+        else:
+            yield from self._process_response_object(
+                response, path, status, is_delta
+            )
+
+    def _process_response_object(
+            self,
+            response: object,
+            path: str,
+            status: typing.Dict[str, typing.Any],
+            is_delta: bool,
+    ) -> typing.Iterator[AiResponse]:
+        status.update(
+            self._ai_client.extract_status(
+                response, self._ai_client.status_paths
+            ),
+        )
+
+        for output in get_item(response, "choices", []):
+            role = get_item(output, path + ".role", "assistant")
+
+            if role != "assistant":
+                continue
+
+            content = get_item(output, path + ".content")
+            reasoning = get_item(output, path + ".reasoning_content")
+            status.update(
+                self._ai_client.extract_status(
+                    output, self._ai_client.status_paths
+                ),
+            )
+
+            if reasoning is not None:
+                yield AiResponse(
+                    is_delta=is_delta,
+                    is_reasoning=True,
+                    is_status=False,
+                    text=reasoning,
+                )
+
+            if content is None:
+                continue
+
+            if isinstance(content, str):
+                yield AiResponse(
+                    is_delta=is_delta,
+                    is_reasoning=False,
+                    is_status=False,
+                    text=content,
+                )
+
+                continue
+
+            if not isinstance(content, collections.abc.Sequence):
+                continue
+
+            for item in content:
+                item_type = get_item(item, "type")
+
+                if item_type == "text":
+                    text = get_item(item, "text")
+
+                    if text is not None:
+                        yield AiResponse(
+                            is_delta=is_delta,
+                            is_reasoning=False,
+                            is_status=False,
+                            text=text,
+                        )
+
+                elif item_type == "thinking":
+                    for thinking in get_item(item, "thinking", []):
+                        if get_item(thinking, "type") == "text":
+                            text = get_item(thinking, "text")
+
+                            if text is not None:
+                                yield AiResponse(
+                                    is_delta=is_delta,
+                                    is_reasoning=True,
+                                    is_status=False,
+                                    text=text,
+                                )
+
+    def process_stream_event(
+            self,
+            event_type: str,
+            data_bytes: str,
+            status: typing.Dict[str, str],
+    ) -> typing.Iterator[AiResponse]:
+        yield from self._process_response(data_bytes, "delta", status, is_delta=True)
+
+
+class OpenAiCompatibleClientResponsesFlavor(OpenAiCompatibleClientFlavor):
+    def build_request_body(
+            self, model, conversation, temperature, reasoning, stream
+    ) -> typing.Dict:
+        body = {
+            "model": model,
+            "temperature": temperature,
+            "input": self._convert_conversation(conversation),
+            "stream": stream,
+        }
+
+        if reasoning == Reasoning.ON:
+            body["reasoning"] = {"effort": "medium"}
+
+        return body
+
+    def _process_complete_response(
+            self,
+            response_bytes: str,
+            path: str,
+            status: typing.Dict[str, typing.Any],
+    ) -> typing.Iterator[AiResponse]:
+        try:
+            response = json.loads(response_bytes)
+
+        except json.JSONDecodeError:
+            pass
+
+        else:
+            response = get_item(response, path)
+
+            for output in get_item(response, "output", []):
+                if get_item(output, "type") != "message":
+                    continue
+
+                for content in get_item(output, "content", []):
+                    if get_item(content, "type") != "output_text":
+                        continue
+
+                    text = get_item(content, "text", "")
+
+                    yield AiResponse(
+                        is_delta=False,
+                        is_reasoning=False,
+                        is_status=False,
+                        text=text,
+                    )
+
+            status.update(
+                self._ai_client.extract_status(
+                    response, self._ai_client.status_paths,
+                ),
+            )
+
+    def process_stream_event(
+            self,
+            event_type: str,
+            data_bytes: str,
+            status: typing.Dict[str, str],
+    ) -> typing.Iterator[AiResponse]:
+        if event_type == "response.output_text.delta":
+            try:
+                text = get_item(json.loads(data_bytes), "delta", "")
+
+            except json.JSONDecodeError:
+                pass
+
+            else:
+                yield AiResponse(
+                    is_delta=True,
+                    is_reasoning=False,
+                    is_status=False,
+                    text=text,
+                )
+
+        elif event_type == "response.created" or event_type == "response.in_progress":
+            try:
+                data = get_item(json.loads(data_bytes), "response")
+
+            except json.JSONDecodeError:
+                pass
+
+            else:
+                status.update(
+                    self._ai_client.extract_status(
+                        data, self._ai_client.status_paths,
+                    ),
+                )
+
+        elif event_type == "response.completed":
+            yield from self._process_complete_response(
+                data_bytes, "response", status,
+            )
+
+
+class OpenAiCompatibleClient(AiClient):
+    def __init__(
+            self,
+            api_key: str,
+            models_url: str,
+            chat_url: typing.Optional[str]=None,
+            responses_url: typing.Optional[str]=None,
+            roles: typing.Optional[typing.Dict[str, str]]=None,
+            status_paths: tuple[str]=(),
+            model_url: typing.Optional[str]=None,
+            flavor: typing.Optional[OpenAiCompatibleClientFlavor]=None,
+    ):
+        super().__init__()
+
+        assert (
+            (chat_url is None and responses_url is not None)
+            or (chat_url is not None and responses_url is None)
+        ), f"Either chat_url or responses_url must be None, got {chat_url=!r} and {responses_url=!r}"
+
+        self._api_key = api_key
+        self._models_url = models_url
+
+        self.status_paths = status_paths
+
+        self._roles = self.build_roles(roles)
+
+        self._flavor = None
+        self._model_url = None
+
+        if chat_url is not None:
+            self._model_url = chat_url
+            self._flavor = OpenAiCompatibleClientChatFlavor(
+                ai_client=self, roles=self._roles,
+            )
+
+        elif responses_url is not None:
+            self._model_url = responses_url
+            self._flavor = OpenAiCompatibleClientResponsesFlavor(
+                ai_client=self, roles=self._roles,
+            )
+
+        elif flavor is not None and model_url is not None:
+            self._model_url = model_url
+            self._flavor = flavor
+
+        else:
+            raise ValueError(
+                "Either chat_url, responses_url, or a pair of flavor and model_url must be provided"
+            )
+
+    @staticmethod
+    def build_roles(
+            overrides: typing.Optional[typing.Dict[str, str]]=None,
+    ) -> typing.Dict[str, str]:
+        roles = {
+            MessageType.SYSTEM: "developer",
+            MessageType.USER: "user",
+            MessageType.AI: "assistant",
+        }
+
+        if overrides is not None:
+            roles.update(overrides)
+
+        return roles
+
+    def _build_request_headers(self):
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+        if self._api_key != "":
+            headers["Authorization"] = "Bearer " + self._api_key
+
+        return headers
+
+    def list_models(self) -> collections.abc.Sequence[str]:
+        return [model["id"] for model in self.list_models_raw()]
+
+    def list_models_raw(self) -> collections.abc.Sequence[collections.abc.Mapping]:
+        raw_response = self.http_request(
+            "GET",
+            self._models_url,
+            headers=self._build_request_headers(),
+        )
+        response = json.loads(raw_response)
+
+        return [
+            model
+            for model in get_item(response, "data", [])
+            if get_item(model, "object", "") == "model"
+        ]
+
+    def respond(
+            self,
+            model: str,
+            conversation: typing.Iterator[Message],
+            temperature: float,
+            reasoning: Reasoning,
+    ) -> typing.Iterator[AiResponse]:
+        headers, body = self._build_request(
+            model, conversation, temperature, reasoning, stream=False,
+        )
+        response = self.http_request(
+            "POST", self._model_url, headers, json.dumps(body).encode("utf-8")
+        )
+        status = {}
+
+        yield from self._flavor.process_complete_response(response, status)
+        yield from self.compile_status(status)
+
+    def _build_request(self, model, conversation, temperature, reasoning, stream):
+        headers = self._build_request_headers()
+        body = self._flavor.build_request_body(
+            model, conversation, temperature, reasoning, stream
+        )
+
+        return headers, body
+
+    def respond_streaming(
+            self,
+            model: str,
+            conversation: typing.Iterator[Message],
+            temperature: float,
+            reasoning: Reasoning,
+    ) -> typing.Iterator[AiResponse]:
+        headers, body = self._build_request(
+            model, conversation, temperature, reasoning, stream=True,
+        )
+        stream = self.http_sse(
+            "POST", self._model_url, headers, json.dumps(body).encode("utf-8")
+        )
+        status = {}
+
+        for event_type, data_bytes in stream:
+            yield from self._flavor.process_stream_event(
+                event_type, data_bytes, status
+            )
+
+        yield from self.compile_status(status)
 
 
 class AnthropicClient(AiClient):
@@ -730,6 +1130,11 @@ class AnthropicClient(AiClient):
         "usage.output_tokens",
         "usage.service_tier",
     )
+
+    def __init__(self, api_key: str):
+        super().__init__()
+
+        self._api_key = api_key
 
     def list_models(self) -> collections.abc.Sequence[str]:
         raw_response = self.http_request(
@@ -938,185 +1343,49 @@ class AnthropicClient(AiClient):
         return [{"type": "text", "text": text}], 0
 
 
-class DeepSeekClient(AiClient):
+class DeepSeekClient(OpenAiCompatibleClient):
     # https://api-docs.deepseek.com/api/create-chat-completion
 
     URL_CHAT = "https://api.deepseek.com/chat/completions"
     URL_MODELS = "https://api.deepseek.com/models"
 
-    STATUS_PATHS = (
-        "created",
-        "finish_reason",
-        "id",
-        "model",
-        "system_fingerprint",
-        "usage.completion_tokens",
-        "usage.completion_tokens_details.reasoning_tokens",
-        "usage.prompt_cache_hit_tokens",
-        "usage.prompt_cache_miss_tokens",
-        "usage.prompt_tokens",
-        "usage.prompt_tokens_details.cached_tokens",
-        "usage.total_tokens",
-    )
-
-    def list_models(self) -> collections.abc.Sequence[str]:
-        raw_response = self.http_request(
-            "GET",
-            self.URL_MODELS,
-            headers=self._build_request_headers(),
+    def __init__(self, api_key: str):
+        super().__init__(
+            api_key=api_key,
+            models_url=self.URL_MODELS,
+            chat_url=self.URL_CHAT,
+            status_paths=(
+                "created",
+                "finish_reason",
+                "id",
+                "model",
+                "system_fingerprint",
+                "usage.completion_tokens",
+                "usage.completion_tokens_details.reasoning_tokens",
+                "usage.prompt_cache_hit_tokens",
+                "usage.prompt_cache_miss_tokens",
+                "usage.prompt_tokens",
+                "usage.prompt_tokens_details.cached_tokens",
+                "usage.total_tokens",
+            ),
+            roles={
+                MessageType.SYSTEM: "system",
+            },
         )
-        response = json.loads(raw_response)
-
-        return [
-            model["id"]
-            for model in get_item(response, "data", [])
-            if model["object"] == "model"
-        ]
-
-    def respond(
-            self,
-            model: str,
-            conversation: typing.Iterator[Message],
-            temperature: float,
-            reasoning: Reasoning,
-    ) -> typing.Iterator[AiResponse]:
-        headers, body = self._build_request(
-            model,
-            conversation,
-            temperature,
-            reasoning,
-            stream=False,
-        )
-        response_bytes = self.http_request("POST", self.URL_CHAT, headers, body)
-        status = {}
-
-        try:
-            response = json.loads(response_bytes)
-
-        except json.JSONDecodeError:
-            pass
-
-        else:
-            for choice in get_item(response, "choices", []):
-                if get_item(choice, "message.role") != "assistant":
-                    continue
-
-                reasoning = get_item(choice, "message.reasoning_content")
-                text = get_item(choice, "message.content", "")
-
-                if reasoning is not None:
-                    yield AiResponse(
-                        is_delta=False,
-                        is_reasoning=True,
-                        is_status=False,
-                        text=reasoning,
-                    )
-
-                yield AiResponse(
-                    is_delta=False,
-                    is_reasoning=False,
-                    is_status=False,
-                    text=text,
-                )
-
-                status.update(self.extract_status(choice, self.STATUS_PATHS))
-
-                break
-
-            status.update(self.extract_status(response, self.STATUS_PATHS))
-
-            yield from self.compile_status(status)
-
-    def respond_streaming(
-            self,
-            model: str,
-            conversation: typing.Iterator[Message],
-            temperature: float,
-            reasoning: Reasoning,
-    ) -> typing.Iterator[AiResponse]:
-        headers, body = self._build_request(
-            model,
-            conversation,
-            temperature,
-            reasoning,
-            stream=True,
-        )
-        status = {}
-
-        for _, data_bytes in self.http_sse("POST", self.URL_CHAT, headers, body):
-            try:
-                data = json.loads(data_bytes)
-
-            except json.JSONDecodeError:
-                continue
-
-            if get_item(data, "object") == "chat.completion.chunk":
-                for choice in get_item(data, "choices", []):
-                    reasoning = get_item(choice, "delta.reasoning_content")
-
-                    if reasoning is not None:
-                        yield AiResponse(
-                            is_delta=True,
-                            is_reasoning=True,
-                            is_status=False,
-                            text=reasoning,
-                        )
-
-                    text = get_item(choice, "delta.content")
-
-                    if text is not None:
-                        yield AiResponse(
-                            is_delta=True,
-                            is_reasoning=False,
-                            is_status=False,
-                            text=text,
-                        )
-
-                    status.update(self.extract_status(choice, self.STATUS_PATHS))
-
-                    break
-
-                status.update(self.extract_status(data, self.STATUS_PATHS))
-
-        yield from self.compile_status(status)
-
-    def _build_request_headers(self):
-        return {
-            "Authorization": "Bearer " + self._api_key,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
 
     def _build_request(self, model, conversation, temperature, reasoning, stream):
-        body = {
-            "model": model,
-            "temperature": temperature,
-            "messages": self._convert_conversation(conversation),
-            "stream": stream,
-        }
+        headers, body = super()._build_request(
+            model, conversation, temperature, Reasoning.DEFAULT, stream
+        )
 
         if reasoning == Reasoning.OFF:
             body["thinking"] = {"type": "disabled"}
+
         elif reasoning == Reasoning.ON:
             body["thinking"] = {"type": "enabled"}
             body["reasoning_effort"] = "high"
 
-        return self._build_request_headers(), json.dumps(body).encode("utf-8")
-
-    def _convert_conversation(self, conversation):
-        roles = {
-            MessageType.SYSTEM: "system",
-            MessageType.USER: "user",
-            MessageType.AI: "assistant",
-        }
-
-        return [
-            {
-                "role": roles.get(message.type, "user"),
-                "content": message.text,
-            }
-            for message in conversation
-        ]
+        return headers, body
 
 
 class GoogleClient(AiClient):
@@ -1144,6 +1413,11 @@ class GoogleClient(AiClient):
         "usageMetadata.toolUsePromptTokenCount",
         "usageMetadata.totalTokenCount",
     )
+
+    def __init__(self, api_key: str):
+        super().__init__()
+
+        self._api_key = api_key
 
     def list_models(self) -> collections.abc.Sequence[str]:
         raw_response = self.http_request(
@@ -1245,7 +1519,7 @@ class GoogleClient(AiClient):
 
     def _process_response(
             self,
-            response_bytes: bytes,
+            response_bytes: str,
             status: typing.Dict[str, typing.Any],
             citations: typing.List[str],
             is_delta: bool,
@@ -1331,356 +1605,93 @@ class GoogleClient(AiClient):
                 yield from responses
 
 
-class MistralClient(AiClient):
+class MistralClient(OpenAiCompatibleClient):
     # https://docs.mistral.ai/api/endpoint/chat
     # https://docs.mistral.ai/api/endpoint/models
 
     URL_CHAT = "https://api.mistral.ai/v1/chat/completions"
     URL_MODELS = "https://api.mistral.ai/v1/models"
 
-    STATUS_PATHS = (
-        "usage.prompt_tokens",
-        "usage.total_tokens",
-        "usage.completion_tokens",
-        "usage.prompt_token_details.cached_tokens",
-        "finish_reason",
-    )
-
-    def list_models(self) -> collections.abc.Sequence[str]:
-        raw_response = self.http_request(
-            "GET",
-            self.URL_MODELS,
-            headers=self._build_request_headers(),
+    def __init__(self, api_key: str):
+        super().__init__(
+            api_key=api_key,
+            models_url=self.URL_MODELS,
+            chat_url=self.URL_CHAT,
+            status_paths=(
+                "usage.prompt_tokens",
+                "usage.total_tokens",
+                "usage.completion_tokens",
+                "usage.prompt_token_details.cached_tokens",
+                "finish_reason",
+            ),
+            roles={
+                MessageType.SYSTEM: "system",
+            },
         )
-        response = json.loads(raw_response)
-
-        return [
-            model["id"]
-            for model in get_item(response, "data", [])
-        ]
-
-    def respond(
-            self,
-            model: str,
-            conversation: typing.Iterator[Message],
-            temperature: float,
-            reasoning: Reasoning,
-    ) -> typing.Iterator[AiResponse]:
-        headers, body = self._build_request(
-            model,
-            conversation,
-            temperature,
-            reasoning,
-            stream=False,
-        )
-        response = self.http_request("POST", self.URL_CHAT, headers, body)
-        status = {}
-
-        yield from self._process_response(response, "message", status, is_delta=False)
-        yield from self.compile_status(status)
-
-    def respond_streaming(
-            self,
-            model: str,
-            conversation: typing.Iterator[Message],
-            temperature: float,
-            reasoning: Reasoning,
-    ) -> typing.Iterator[AiResponse]:
-        headers, body = self._build_request(
-            model,
-            conversation,
-            temperature,
-            reasoning,
-            stream=True,
-        )
-        status = {}
-
-        for event_type, data_bytes in self.http_sse("POST", self.URL_CHAT, headers, body):
-            yield from self._process_response(data_bytes, "delta", status, is_delta=True)
-
-        yield from self.compile_status(status)
-
-    def _build_request_headers(self):
-        return {
-            "Authorization": "Bearer " + self._api_key,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
 
     def _build_request(self, model, conversation, temperature, reasoning, stream):
-        body = {
-            "model": model,
-            "temperature": temperature,
-            "messages": self._convert_conversation(conversation),
-            "safe_prompt": False,
-            "stream": stream,
-        }
+        headers, body = super()._build_request(
+            model, conversation, temperature, reasoning, stream
+        )
+        body["safe_prompt"] = False
 
         if reasoning == Reasoning.ON:
             body["reasoning_effort"] = "high"
 
-        return self._build_request_headers(), json.dumps(body).encode("utf-8")
+        return headers, body
 
-    def _convert_conversation(self, conversation):
-        roles = {
-            MessageType.SYSTEM: "system",
-            MessageType.USER: "user",
-            MessageType.AI: "assistant",
-        }
 
-        return [
-            {
-                "role": roles.get(message.type, "user"),
-                "content": message.text,
-            }
-            for message in conversation
-        ]
-
-    def _process_response(
-            self,
-            response_bytes: bytes,
-            path: str,
-            status: typing.Dict[str, typing.Any],
-            is_delta: bool,
-    ) -> typing.Iterator[AiResponse]:
-        try:
-            response = json.loads(response_bytes)
-
-        except json.JSONDecodeError:
-            pass
-
-        else:
-            status.update(self.extract_status(response, self.STATUS_PATHS))
-
-            for output in get_item(response, "choices", []):
-                role = get_item(output, path + ".role", "assistant")
-
-                if role != "assistant":
-                    continue
-
-                content = get_item(output, path + ".content", "")
-                status.update(self.extract_status(output, self.STATUS_PATHS))
-
-                if isinstance(content, str):
-                    if content != "":
-                        yield AiResponse(
-                            is_delta=is_delta,
-                            is_reasoning=False,
-                            is_status=False,
-                            text=content,
-                        )
-                elif isinstance(content, collections.abc.Sequence):
-                    for item in content:
-                        item_type = get_item(item, "type")
-
-                        if item_type == "text":
-                            text = get_item(item, "text", "")
-
-                            if text != "":
-                                yield AiResponse(
-                                    is_delta=is_delta,
-                                    is_reasoning=False,
-                                    is_status=False,
-                                    text=text,
-                                )
-
-                        elif item_type == "thinking":
-                            for thinking in get_item(item, "thinking", []):
-                                if get_item(thinking, "type", "") == "text":
-                                    text = get_item(thinking, "text", "")
-
-                                    if text != "":
-                                        yield AiResponse(
-                                            is_delta=is_delta,
-                                            is_reasoning=True,
-                                            is_status=False,
-                                            text=text,
-                                        )
-
-class OpenAiClient(AiClient):
+class OpenAiClient(OpenAiCompatibleClient):
     # https://platform.openai.com/docs/guides/text?api-mode=responses
     # https://platform.openai.com/docs/api-reference/responses/create
 
     URL_CHAT = "https://api.openai.com/v1/responses"
     URL_MODELS = "https://api.openai.com/v1/models"
 
-    STATUS_PATHS = (
-        "created_at",
-        "error.code",
-        "error.message",
-        "id",
-        "incomplete_details.reason",
-        "max_output_tokens",
-        "max_tool_calls",
-        "model",
-        "prompt_cache_key",
-        "reasoning.effort",
-        "service_tier",
-        "status",
-        "text.format.type",
-        "text.verbosity",
-        "tool_choice",
-        "truncation",
-        "usage.input_tokens",
-        "usage.input_tokens_details.cached_tokens",
-        "usage.output_tokens",
-        "usage.output_tokens_details.reasoning_tokens",
-        "usage.total_tokens",
-    )
+    def __init__(self, api_key: str):
+        super().__init__(
+            api_key=api_key,
+            models_url=self.URL_MODELS,
+            responses_url=self.URL_CHAT,
+            status_paths=(
+                "created_at",
+                "error.code",
+                "error.message",
+                "id",
+                "incomplete_details.reason",
+                "max_output_tokens",
+                "max_tool_calls",
+                "model",
+                "prompt_cache_key",
+                "reasoning.effort",
+                "service_tier",
+                "status",
+                "text.format.type",
+                "text.verbosity",
+                "tool_choice",
+                "truncation",
+                "usage.input_tokens",
+                "usage.input_tokens_details.cached_tokens",
+                "usage.output_tokens",
+                "usage.output_tokens_details.reasoning_tokens",
+                "usage.total_tokens",
+            ),
+        )
 
     def list_models(self) -> collections.abc.Sequence[str]:
-        raw_response = self.http_request(
-            "GET",
-            self.URL_MODELS,
-            headers=self._build_request_headers(),
-        )
-        response = json.loads(raw_response)
-
         return [
             model["id"]
-            for model in get_item(response, "data", [])
-            if model["object"] == "model" and model["owned_by"] != "openai-internal"
+            for model in super().list_models_raw()
+            if model["owned_by"] != "openai-internal"
         ]
-
-    def respond(
-            self,
-            model: str,
-            conversation: typing.Iterator[Message],
-            temperature: float,
-            reasoning: Reasoning,
-    ) -> typing.Iterator[AiResponse]:
-        headers, body = self._build_request(
-            model,
-            conversation,
-            temperature,
-            reasoning,
-            stream=False,
-        )
-        response = self.http_request("POST", self.URL_CHAT, headers, body)
-        status = {}
-
-        yield from self._process_complete_response(response, ".", status)
-        yield from self.compile_status(status)
-
-    def respond_streaming(
-            self,
-            model: str,
-            conversation: typing.Iterator[Message],
-            temperature: float,
-            reasoning: Reasoning,
-    ) -> typing.Iterator[AiResponse]:
-        headers, body = self._build_request(
-            model,
-            conversation,
-            temperature,
-            reasoning,
-            stream=True,
-        )
-        status = {}
-
-        for event_type, data_bytes in self.http_sse("POST", self.URL_CHAT, headers, body):
-            if event_type == "response.output_text.delta":
-                try:
-                    text = get_item(json.loads(data_bytes), "delta", "")
-
-                except json.JSONDecodeError:
-                    pass
-
-                else:
-                    yield AiResponse(
-                        is_delta=True,
-                        is_reasoning=False,
-                        is_status=False,
-                        text=text,
-                    )
-
-            elif event_type == "response.created" or event_type == "response.in_progress":
-                try:
-                    data = get_item(json.loads(data_bytes), "response")
-
-                except json.JSONDecodeError:
-                    pass
-
-                else:
-                    status.update(self.extract_status(data, self.STATUS_PATHS))
-
-            elif event_type == "response.completed":
-                yield from self._process_complete_response(
-                    data_bytes,
-                    "response",
-                    status,
-                )
-
-        yield from self.compile_status(status)
-
-    def _build_request_headers(self):
-        return {
-            "Authorization": "Bearer " + self._api_key,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
 
     def _build_request(self, model, conversation, temperature, reasoning, stream):
-        body = {
-            "model": model,
-            "temperature": temperature,
-            "input": self._convert_conversation(conversation),
-            "stream": stream,
-        }
+        headers, body = super()._build_request(
+            model, conversation, temperature, reasoning, stream
+        )
+        body["store"] = False
 
-        if reasoning == Reasoning.ON:
-            body["reasoning"] = {"effort": "medium"}
-
-        return self._build_request_headers(), json.dumps(body).encode("utf-8")
-
-    def _convert_conversation(self, conversation):
-        roles = {
-            MessageType.SYSTEM: "developer",
-            MessageType.USER: "user",
-            MessageType.AI: "assistant",
-        }
-
-        return [
-            {
-                "role": roles.get(message.type, "user"),
-                "content": message.text,
-            }
-            for message in conversation
-        ]
-
-    def _process_complete_response(
-            self,
-            response_bytes: bytes,
-            path: str,
-            status: typing.Dict[str, typing.Any],
-    ) -> typing.Iterator[AiResponse]:
-        try:
-            response = json.loads(response_bytes)
-
-        except json.JSONDecodeError:
-            pass
-
-        else:
-            response = get_item(response, path)
-
-            for output in get_item(response, "output", []):
-                if get_item(output, "type") != "message":
-                    continue
-
-                for content in get_item(output, "content", []):
-                    if get_item(content, "type") != "output_text":
-                        continue
-
-                    text = get_item(content, "text", "")
-
-                    yield AiResponse(
-                        is_delta=False,
-                        is_reasoning=False,
-                        is_status=False,
-                        text=text,
-                    )
-
-            status.update(self.extract_status(response, self.STATUS_PATHS))
+        return headers, body
 
 
 class PerplexityClient(AiClient):
@@ -1701,6 +1712,11 @@ class PerplexityClient(AiClient):
         "usage.search_context_size",
         "usage.total_tokens",
     )
+
+    def __init__(self, api_key: str):
+        super().__init__()
+
+        self._api_key = api_key
 
     def list_models(self) -> collections.abc.Sequence[str]:
         return [
@@ -1937,169 +1953,47 @@ class PerplexityClient(AiClient):
         return parts[0], parts[1], reasoning_started, text_started
 
 
-class XAiClient(AiClient):
+class XAiClient(OpenAiCompatibleClient):
     # https://docs.x.ai/docs/tutorial
     # https://docs.x.ai/docs/api-reference#chat-completions
 
     URL_CHAT = "https://api.x.ai/v1/chat/completions"
     URL_MODELS = "https://api.x.ai/v1/models"
 
-    STATUS_PATHS = (
-        "created",
-        "finish_reason",
-        "id",
-        "message.refusal",
-        "model",
-        "system_fingerprint",
-        "usage.completion_tokens",
-        "usage.completion_tokens_details.accepted_prediction_tokens",
-        "usage.completion_tokens_details.audio_tokens",
-        "usage.completion_tokens_details.reasoning_tokens",
-        "usage.completion_tokens_details.rejected_prediction_tokens",
-        "usage.num_sources_used",
-        "usage.prompt_tokens",
-        "usage.prompt_tokens_details.audio_tokens",
-        "usage.prompt_tokens_details.cached_tokens",
-        "usage.prompt_tokens_details.image_tokens",
-        "usage.prompt_tokens_details.text_tokens",
-        "usage.total_tokens",
-    )
-
-    def list_models(self) -> collections.abc.Sequence[str]:
-        raw_response = self.http_request(
-            "GET",
-            self.URL_MODELS,
-            headers=self._build_request_headers(),
+    def __init__(self, api_key: str):
+        super().__init__(
+            api_key=api_key,
+            models_url=self.URL_MODELS,
+            chat_url=self.URL_CHAT,
+            status_paths=(
+                "created",
+                "finish_reason",
+                "id",
+                "message.refusal",
+                "model",
+                "system_fingerprint",
+                "usage.completion_tokens",
+                "usage.completion_tokens_details.accepted_prediction_tokens",
+                "usage.completion_tokens_details.audio_tokens",
+                "usage.completion_tokens_details.reasoning_tokens",
+                "usage.completion_tokens_details.rejected_prediction_tokens",
+                "usage.num_sources_used",
+                "usage.prompt_tokens",
+                "usage.prompt_tokens_details.audio_tokens",
+                "usage.prompt_tokens_details.cached_tokens",
+                "usage.prompt_tokens_details.image_tokens",
+                "usage.prompt_tokens_details.text_tokens",
+                "usage.total_tokens",
+            ),
+            roles={
+                MessageType.SYSTEM: "system",
+            },
         )
-        response = json.loads(raw_response)
-
-        return [
-            model["id"]
-            for model in get_item(response, "data", [])
-            if model["object"] == "model"
-        ]
-
-    def respond(
-            self,
-            model: str,
-            conversation: typing.Iterator[Message],
-            temperature: float,
-            reasoning: Reasoning,
-    ) -> typing.Iterator[AiResponse]:
-        headers, body = self._build_request(
-            model,
-            conversation,
-            temperature,
-            reasoning,
-            stream=False,
-        )
-        response_bytes = self.http_request("POST", self.URL_CHAT, headers, body)
-        status = {}
-
-        try:
-            response = json.loads(response_bytes)
-
-        except json.JSONDecodeError:
-            pass
-
-        else:
-            for choice in get_item(response, "choices", []):
-                if get_item(choice, "message.role") != "assistant":
-                    continue
-
-                reasoning = get_item(choice, "message.reasoning_content")
-                text = get_item(choice, "message.content", "")
-
-                if reasoning is not None:
-                    yield AiResponse(
-                        is_delta=False,
-                        is_reasoning=True,
-                        is_status=False,
-                        text=reasoning,
-                    )
-
-                yield AiResponse(
-                    is_delta=False,
-                    is_reasoning=False,
-                    is_status=False,
-                    text=text,
-                )
-
-                status.update(self.extract_status(choice, self.STATUS_PATHS))
-
-                break
-
-            status.update(self.extract_status(response, self.STATUS_PATHS))
-
-            yield from self.compile_status(status)
-
-    def respond_streaming(
-            self,
-            model: str,
-            conversation: typing.Iterator[Message],
-            temperature: float,
-            reasoning: Reasoning,
-    ) -> typing.Iterator[AiResponse]:
-        headers, body = self._build_request(
-            model,
-            conversation,
-            temperature,
-            reasoning,
-            stream=True,
-        )
-        status = {}
-
-        for _, data_bytes in self.http_sse("POST", self.URL_CHAT, headers, body):
-            try:
-                data = json.loads(data_bytes)
-
-            except json.JSONDecodeError:
-                continue
-
-            if get_item(data, "object") == "chat.completion.chunk":
-                for choice in get_item(data, "choices", []):
-                    reasoning = get_item(choice, "delta.reasoning_content")
-
-                    if reasoning is not None:
-                        yield AiResponse(
-                            is_delta=True,
-                            is_reasoning=True,
-                            is_status=False,
-                            text=reasoning,
-                        )
-
-                    text = get_item(choice, "delta.content")
-
-                    if text is not None:
-                        yield AiResponse(
-                            is_delta=True,
-                            is_reasoning=False,
-                            is_status=False,
-                            text=text,
-                        )
-
-                    status.update(self.extract_status(choice, self.STATUS_PATHS))
-
-                    break
-
-                status.update(self.extract_status(data, self.STATUS_PATHS))
-
-        yield from self.compile_status(status)
-
-    def _build_request_headers(self):
-        return {
-            "Authorization": "Bearer " + self._api_key,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
 
     def _build_request(self, model, conversation, temperature, reasoning, stream):
-        body = {
-            "model": model,
-            "temperature": temperature,
-            "messages": self._convert_conversation(conversation),
-            "stream": stream,
-        }
+        headers, body = super()._build_request(
+            model, conversation, temperature, Reasoning.DEFAULT, stream
+        )
 
         if stream:
             body["stream_options"] = {"include_usage": True}
@@ -2107,22 +2001,7 @@ class XAiClient(AiClient):
         if reasoning == Reasoning.ON:
             body["reasoning_effort"] = "high"
 
-        return self._build_request_headers(), json.dumps(body).encode("utf-8")
-
-    def _convert_conversation(self, conversation):
-        roles = {
-            MessageType.SYSTEM: "system",
-            MessageType.USER: "user",
-            MessageType.AI: "assistant",
-        }
-
-        return [
-            {
-                "role": roles.get(message.type, "user"),
-                "content": message.text,
-            }
-            for message in conversation
-        ]
+        return headers, body
 
 
 def load_state():
