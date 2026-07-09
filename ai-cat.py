@@ -178,6 +178,12 @@ def main(argv):
             description="A simple and stupid, Vim-friendly, Markdown-based command-line client for popular LLM AI chatbot APIs.",
         )
         parser.add_argument(
+            "-d",
+            "--dump-http",
+            dest="dump_http",
+            help="Dump all HTTP traffic into the specified file.",
+        )
+        parser.add_argument(
             "-q",
             "--quiet",
             action="store_true",
@@ -232,6 +238,12 @@ def main(argv):
 
         parsed_argv = parser.parse_args(argv)
 
+        http_logger = (
+            NoOpHttpLogger()
+            if not parsed_argv.dump_http
+            else FileHttpLogger(parsed_argv.dump_http)
+        )
+
         if parsed_argv.quiet:
             is_quiet = True
 
@@ -255,11 +267,14 @@ def main(argv):
             "xai": XAiClient,
         }
 
-        ai_clients = {
-            name: ai_client_cls[name](api_key)
-            for name, api_key in api_keys.items()
-            if name in ai_client_cls
-        }
+        ai_clients = {}
+
+        for name, api_key in api_keys.items():
+            if name not in ai_client_cls:
+                continue
+
+            ai_clients[name] = ai_client_cls[name](api_key)
+            ai_clients[name].http_logger = http_logger
 
         models, models_cache_updated = ensure_up_to_date_models(
             ai_clients,
@@ -480,9 +495,65 @@ class AiResponse:
     text: str
 
 
+class HttpLogger:
+    def log_request(self, method, url, headers, body):
+        raise NotImplementedError()
+
+    def log_response_headers(self, status, headers):
+        raise NotImplementedError()
+
+    def log_response_body_chunk(self, chunk):
+        raise NotImplementedError()
+
+
+class NoOpHttpLogger(HttpLogger):
+    def log_request(self, method, url, headers, body):
+        pass
+
+    def log_response_headers(self, status, headers):
+        pass
+
+    def log_response_body_chunk(self, chunk):
+        pass
+
+
+class FileHttpLogger(HttpLogger):
+    def __init__(self, filename: str):
+        self._filename = filename
+
+    def log_request(self, method, url, headers, body):
+        with open(self._filename, "a") as f:
+            print("# Request:", file=f)
+            print(f"{method} {url}", file=f)
+
+            for name, value in headers:
+                print(f"{name}: {value}", file=f)
+
+            print("", file=f)
+            print(repr(body), file=f)
+            print("", file=f)
+
+    def log_response_headers(self, status, headers):
+        with open(self._filename, "a") as f:
+            print(f"# Response headers ({status}):", file=f)
+
+            for name, value in headers:
+                print(f"{name}: {value}", file=f)
+
+            print("", file=f)
+
+    def log_response_body_chunk(self, chunk):
+        with open(self._filename, "a") as f:
+            print(f"# Response body chunk:", file=f)
+            print(repr(chunk), file=f)
+            print("", file=f)
+
+
 class AiClient:
     def __init__(self, api_key: str):
         self._api_key = api_key
+
+        self.http_logger = NoOpHttpLogger()
 
     def list_models(self) -> collections.abc.Sequence[str]:
         raise NotImplementedError()
@@ -505,9 +576,8 @@ class AiClient:
     ) -> typing.Iterator[AiResponse]:
         raise NotImplementedError()
 
-    @classmethod
     def http_sse(
-            cls,
+            self,
             method: str,
             url: str,
             headers: typing.Optional[typing.Dict[str, str]]=None,
@@ -516,7 +586,7 @@ class AiClient:
     ) -> typing.Iterator[tuple[str, str]]:
         buffer = b""
 
-        for chunk in cls.http_request_buffered(method, url, headers, body, bufsize=bufsize):
+        for chunk in self.http_request_buffered(method, url, headers, body, bufsize=bufsize):
             if chunk:
                 buffer += chunk
 
@@ -542,8 +612,8 @@ class AiClient:
 
                 yield event_type, data
 
-    @staticmethod
     def http_request_buffered(
+            self,
             method: str,
             url: str,
             headers: typing.Optional[typing.Dict[str, str]]=None,
@@ -558,22 +628,26 @@ class AiClient:
         if parsed_url.query:
             path += "?" + parsed_url.query
 
+        self.http_logger.log_request(method, url, headers.items(), body)
+
         conn.request(method, path, body=body, headers=headers)
         resp = conn.getresponse()
 
         if resp.status != 200:
             raise HttpError(resp.status, resp.reason, resp.read().decode())
 
+        self.http_logger.log_response_headers(resp.status, resp.getheaders())
+
         chunk = True
 
         while chunk:
             chunk = resp.read(bufsize)
+            self.http_logger.log_response_body_chunk(chunk)
 
             yield chunk
 
-    @classmethod
     def http_request(
-            cls,
+            self,
             method: str,
             url: str,
             headers: typing.Optional[typing.Dict[str, str]]=None,
@@ -582,7 +656,7 @@ class AiClient:
     ) -> bytes:
         response = b""
 
-        for chunk in cls.http_request_buffered(method, url, headers or {}, body, bufsize):
+        for chunk in self.http_request_buffered(method, url, headers or {}, body, bufsize):
             response += chunk
 
         return response
