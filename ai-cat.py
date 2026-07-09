@@ -1684,7 +1684,7 @@ class OpenAiClient(AiClient):
 
 
 class PerplexityClient(AiClient):
-    # https://docs.perplexity.ai/api-reference/chat-completions
+    # https://docs.perplexity.ai/api-reference/sonar-post
 
     URL_CHAT = "https://api.perplexity.ai/chat/completions"
 
@@ -1788,7 +1788,9 @@ class PerplexityClient(AiClient):
             except json.JSONDecodeError:
                 continue
 
-            if get_item(data, "object") != "chat.completion":
+            data_obj = get_item(data, "object")
+
+            if data_obj != "chat.completion.chunk" and data_obj != "chat.completion":
                 continue
 
             if citations is None:
@@ -1818,7 +1820,7 @@ class PerplexityClient(AiClient):
                 )
 
             if text_started:
-                if not old_text_started:
+                if citations is not None and not old_text_started:
                     yield AiResponse(
                         is_delta=True,
                         is_reasoning=False,
@@ -1896,7 +1898,7 @@ class PerplexityClient(AiClient):
         content = None
 
         for choice in get_item(response, "choices", []):
-            if get_item(choice, key + ".role") != "assistant":
+            if get_item(choice, key + ".role", "assistant") != "assistant":
                 continue
 
             content = get_item(choice, key + ".content")
