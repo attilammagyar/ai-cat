@@ -741,10 +741,12 @@ class OpenAiCompatibleClientChatFlavor(OpenAiCompatibleClientFlavor):
     ) -> typing.Dict:
         body = {
             "model": model,
-            "temperature": temperature,
             "messages": self._convert_conversation(conversation),
             "stream": stream,
         }
+
+        if abs(temperature - 1.0) > 1e5:
+            body["temperature"] = temperature
 
         if reasoning == Reasoning.OFF:
             body["reasoning_effort"] = "none"
@@ -875,10 +877,12 @@ class OpenAiCompatibleClientResponsesFlavor(OpenAiCompatibleClientFlavor):
     ) -> typing.Dict:
         body = {
             "model": model,
-            "temperature": temperature,
             "input": self._convert_conversation(conversation),
             "stream": stream,
         }
+
+        if abs(temperature - 1.0) > 1e5:
+            body["temperature"] = temperature
 
         if reasoning == Reasoning.OFF:
             body["reasoning"] = {"effort": "none"}
