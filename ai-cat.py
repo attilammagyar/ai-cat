@@ -702,7 +702,7 @@ class OpenAiCompatibleClientFlavor:
     ) -> typing.Dict:
         raise NotImplementedError()
 
-    def _convert_conversation(self, conversation):
+    def _convert_conversation(self, conversation) -> typing.List:
         return [
             {
                 "role": self._roles.get(message.type, "user"),
@@ -1304,7 +1304,7 @@ class AnthropicClient(AiClient):
 
         return headers, json.dumps(body).encode("utf-8")
 
-    def _convert_conversation(self, conversation):
+    def _convert_conversation(self, conversation) -> typing.List:
         messages = []
         system_prompt = None
         remaining_cached_block = 4
@@ -1505,7 +1505,10 @@ class GoogleClient(AiClient):
 
         return json.dumps(body).encode("utf-8")
 
-    def _convert_conversation(self, conversation):
+    def _convert_conversation(
+            self,
+            conversation,
+    ) -> tuple[typing.Optional[str], typing.List]:
         contents = []
         system_prompt = None
 
@@ -1878,7 +1881,7 @@ class PerplexityClient(AiClient):
 
         return headers, json.dumps(body).encode("utf-8")
 
-    def _convert_conversation(self, conversation):
+    def _convert_conversation(self, conversation) -> typing.List:
         roles = {
             MessageType.SYSTEM: "system",
             MessageType.USER: "user",
