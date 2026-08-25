@@ -746,7 +746,10 @@ class OpenAiCompatibleClientChatFlavor(OpenAiCompatibleClientFlavor):
             "stream": stream,
         }
 
-        if reasoning == Reasoning.ON:
+        if reasoning == Reasoning.OFF:
+            body["reasoning_effort"] = "none"
+
+        elif reasoning == Reasoning.ON:
             body["reasoning_effort"] = "medium"
 
         return body
@@ -877,7 +880,10 @@ class OpenAiCompatibleClientResponsesFlavor(OpenAiCompatibleClientFlavor):
             "stream": stream,
         }
 
-        if reasoning == Reasoning.ON:
+        if reasoning == Reasoning.OFF:
+            body["reasoning"] = {"effort": "none"}
+
+        elif reasoning == Reasoning.ON:
             body["reasoning"] = {"effort": "medium"}
 
         return body
@@ -1287,14 +1293,14 @@ class AnthropicClient(AiClient):
         if system_prompt is not None:
             body["system"] = system_prompt
 
-        if reasoning == Reasoning.ON:
+        if reasoning == Reasoning.OFF:
+            body["thinking"] = {"type": "disabled"}
+
+        elif reasoning == Reasoning.ON:
             body["thinking"] = {
                 "type": "enabled",
                 "budget_tokens": 16000,
             }
-
-        elif reasoning == Reasoning.OFF:
-            body["thinking"] = {"type": "disabled"}
 
         return headers, json.dumps(body).encode("utf-8")
 
@@ -1492,7 +1498,7 @@ class GoogleClient(AiClient):
                 "thinkingBudget": 0,
             }
 
-        else:
+        elif reasoning == Reasoning.ON:
             body["generationConfig"]["thinkingConfig"] = {
                 "includeThoughts": True,
             }
@@ -1635,7 +1641,10 @@ class MistralClient(OpenAiCompatibleClient):
         )
         body["safe_prompt"] = False
 
-        if reasoning == Reasoning.ON:
+        if reasoning == Reasoning.OFF:
+            body["reasoning_effort"] = "none"
+
+        elif reasoning == Reasoning.ON:
             body["reasoning_effort"] = "high"
 
         return headers, body
@@ -1998,7 +2007,10 @@ class XAiClient(OpenAiCompatibleClient):
         if stream:
             body["stream_options"] = {"include_usage": True}
 
-        if reasoning == Reasoning.ON:
+        if reasoning == Reasoning.OFF:
+            body["reasoning_effort"] = "none"
+
+        elif reasoning == Reasoning.ON:
             body["reasoning_effort"] = "high"
 
         return headers, body
