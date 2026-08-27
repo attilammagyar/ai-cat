@@ -145,6 +145,23 @@ And what is The Answer?"""
             ai_messenger.filter_models_by_prefix("fake/")
         )
 
+    def test_cache_setting_is_validated(self):
+        ai_messenger = self.create_messenger()[0]
+
+        ai_messenger.set_cache("On")
+        cache_1 = ai_messenger.get_cache()
+        cache_info_1 = ai_messenger.get_cache_info()
+        ai_messenger.set_cache("default")
+        cache_2 = ai_messenger.get_cache()
+        cache_info_2 = ai_messenger.get_cache_info()
+
+        self.assertRaises(ValueError, ai_messenger.set_cache, "no")
+        self.assertRaises(ValueError, ai_messenger.set_cache, "yes")
+        self.assertEqual("on", cache_1)
+        self.assertEqual("Cache: on", cache_info_1)
+        self.assertEqual("default", cache_2)
+        self.assertEqual("Cache: default", cache_info_2)
+
     def test_model_setting_is_validated(self):
         ai_messenger = self.create_messenger()[0]
 
@@ -269,6 +286,7 @@ What is The Answer?
 
 # === Settings ===
 
+Cache: default
 Model: fake/model1
 Reasoning: default
 Streaming: off
@@ -285,6 +303,7 @@ Temperature: {ai_cat.AiMessenger.DEFAULT_TEMPERATURE}
     def test_initial_conversation_reflects_the_current_settings(self):
         ai_messenger = self.create_messenger()[0]
 
+        ai_messenger.set_cache(ai_cat.Cache.DEFAULT.value)
         ai_messenger.set_model("fake/model2")
         ai_messenger.set_reasoning(ai_cat.Reasoning.ON.value)
         ai_messenger.set_streaming(ai_cat.Streaming.OFF.value)
@@ -300,6 +319,7 @@ Temperature: {ai_cat.AiMessenger.DEFAULT_TEMPERATURE}
 
 # === Settings ===
 
+Cache: default
 Model: fake/model2
 Reasoning: on
 Streaming: off
@@ -323,6 +343,9 @@ Temperature: 2.0
                 ],
             ],
         )
+
+        ai_client.set_cache_key(None)
+
         ai_client.model = None
         ai_client.conversation = None
         ai_client.temperature = None
@@ -348,6 +371,7 @@ Temperature: 2.0
 """
         self.assertEqual([], response_chunks)
         self.assertEqual(expected_conversation, ai_messenger.conversation_to_str())
+        self.assertIsNone(ai_client.get_cache_key())
         self.assertIsNone(ai_client.model)
         self.assertIsNone(ai_client.conversation)
         self.assertIsNone(ai_client.temperature)
@@ -458,6 +482,119 @@ Status info 2 here.
             ],
             ai_client.conversation,
         )
+
+    def test_cache_key_is_derived_from_the_system_prompt(self):
+        conversation_1 = """\
+# === System ===
+
+Please act as a helpful AI assistant.
+
+# === Settings ===
+
+Cache: on
+
+# === User ===
+
+What is The Answer?
+"""
+
+        conversation_2 = """\
+# === System ===
+
+Please act as a helpful AI assistant.
+
+# === Settings ===
+
+Cache: on
+
+# === User ===
+
+What is The Answer?
+
+# === AI ===
+
+42.
+
+# === User ===
+
+And what is The Question?
+"""
+
+        conversation_3 = """\
+# === System ===
+
+Please act as a super helpful AI assistant.
+
+# === Settings ===
+
+Cache: on
+
+# === User ===
+
+What is The Answer?
+"""
+
+        _, ai_client, _ = self.ask(
+            conversation_1,
+            [
+                [
+                    ai_cat.AiResponse(is_delta=False, is_reasoning=False, is_status=False, text="42."),
+                ],
+            ],
+        )
+        cache_key_1 = ai_client.get_cache_key()
+
+        _, ai_client, _ = self.ask(
+            conversation_2,
+            [
+                [
+                    ai_cat.AiResponse(is_delta=False, is_reasoning=False, is_status=False, text="Nobody knows."),
+                ],
+            ],
+        )
+        cache_key_2 = ai_client.get_cache_key()
+
+        _, ai_client, _ = self.ask(
+            conversation_3,
+            [
+                [
+                    ai_cat.AiResponse(is_delta=False, is_reasoning=False, is_status=False, text="42."),
+                ],
+            ],
+        )
+        cache_key_3 = ai_client.get_cache_key()
+
+        self.assertIsNotNone(cache_key_1)
+        self.assertIsNotNone(cache_key_2)
+        self.assertIsNotNone(cache_key_3)
+        self.assertEqual(cache_key_1, cache_key_2)
+        self.assertNotEqual(cache_key_2, cache_key_3)
+
+    def test_prompt_caching_may_be_turned_off(self):
+        conversation = """\
+# === System ===
+
+Please act as a helpful AI assistant.
+
+# === Settings ===
+
+Cache: default
+
+# === User ===
+
+What is The Answer?
+"""
+
+        _, ai_client, _ = self.ask(
+            conversation,
+            [
+                [
+                    ai_cat.AiResponse(is_delta=False, is_reasoning=False, is_status=False, text="42."),
+                ],
+            ],
+        )
+
+        self.assertIsNone(ai_client.get_cache_key())
 
     def test_the_system_block_is_moved_to_the_beginning_of_the_conversation(self):
         edited_conversation = """\
@@ -702,6 +839,7 @@ What is The Answer?
 
 # === Settings ===
 
+Cache: default
 Model: fake/model2
 Reasoning: off
 Streaming: off
@@ -727,6 +865,7 @@ Custom system prompt.
 42.
 """
         ai_messenger, ai_client = self.create_messenger()
+        ai_messenger.set_cache(ai_cat.Cache.ON.value)
         ai_messenger.set_model("fake/model2")
         ai_messenger.set_temperature(2.0)
         ai_messenger.set_reasoning(ai_cat.Reasoning.OFF.value)
@@ -750,6 +889,7 @@ Custom system prompt.
 
 # === Settings ===
 
+Cache: on
 Model: fake/model2
 Reasoning: off
 Streaming: off
@@ -763,6 +903,7 @@ Temperature: 2.0
 """
         self.assertEqual([], response_chunks)
         self.assertEqual(expected_conversation, ai_messenger.conversation_to_str())
+        self.assertIsNone(ai_client.get_cache_key())
         self.assertIsNone(ai_client.model)
         self.assertIsNone(ai_client.conversation)
         self.assertIsNone(ai_client.reasoning)
@@ -991,17 +1132,20 @@ Status info here.
             ],
         )
 
-        ai_messenger.set_model("fake/model1")
+        ai_messenger.set_cache(ai_cat.Cache.DEFAULT.value)
         conv_1 = ai_messenger.conversation_to_str()
 
-        ai_messenger.set_reasoning(ai_cat.Reasoning.OFF.value)
+        ai_messenger.set_model("fake/model1")
         conv_2 = ai_messenger.conversation_to_str()
 
-        ai_messenger.set_streaming(ai_cat.Streaming.OFF.value)
+        ai_messenger.set_reasoning(ai_cat.Reasoning.OFF.value)
         conv_3 = ai_messenger.conversation_to_str()
 
-        ai_messenger.set_temperature(0.0)
+        ai_messenger.set_streaming(ai_cat.Streaming.OFF.value)
         conv_4 = ai_messenger.conversation_to_str()
+
+        ai_messenger.set_temperature(0.0)
+        conv_5 = ai_messenger.conversation_to_str()
 
         expected_conversation = (
             self.NOTES
@@ -1013,7 +1157,8 @@ Status info here.
         expected_settings_1 = """\
 # === Settings ===
 
-Model: fake/model1
+Cache: default
+Model: fake/model2
 Reasoning: on
 Streaming: on
 Temperature: 2.0
@@ -1023,8 +1168,9 @@ Temperature: 2.0
         expected_settings_2 = """\
 # === Settings ===
 
+Cache: default
 Model: fake/model1
-Reasoning: off
+Reasoning: on
 Streaming: on
 Temperature: 2.0
 
@@ -1033,9 +1179,10 @@ Temperature: 2.0
         expected_settings_3 = """\
 # === Settings ===
 
+Cache: default
 Model: fake/model1
 Reasoning: off
-Streaming: off
+Streaming: on
 Temperature: 2.0
 
 """
@@ -1043,6 +1190,18 @@ Temperature: 2.0
         expected_settings_4 = """\
 # === Settings ===
 
+Cache: default
+Model: fake/model1
+Reasoning: off
+Streaming: off
+Temperature: 2.0
+
+"""
+
+        expected_settings_5 = """\
+# === Settings ===
+
+Cache: default
 Model: fake/model1
 Reasoning: off
 Streaming: off
@@ -1054,6 +1213,7 @@ Temperature: 0.0
         self.assertEqual(expected_conversation + expected_settings_2, conv_2)
         self.assertEqual(expected_conversation + expected_settings_3, conv_3)
         self.assertEqual(expected_conversation + expected_settings_4, conv_4)
+        self.assertEqual(expected_conversation + expected_settings_5, conv_5)
 
     def test_parsing_keeps_blocks_boundaries_as_they_were_supplied_except_for_multiple_system_prompts(self):
         conversation = """\
@@ -1171,6 +1331,8 @@ class FakeAiClient(ai_cat.AiClient):
             self,
             responses: collections.abc.Sequence[collections.abc.Sequence[ai_cat.AiResponse]],
     ):
+        self._cache_key = None
+
         self.responses = responses
         self.model = None
         self.conversation = None

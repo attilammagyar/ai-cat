@@ -41,6 +41,7 @@ import collections.abc
 import dataclasses
 import datetime
 import enum
+import hashlib
 import http.client
 import json
 import math
@@ -308,6 +309,7 @@ def main(argv):
             exit_code = cmd_replace(messenger, parsed_argv.file_name)
 
         settings = {
+            "cache": messenger.get_cache(),
             "model": messenger.get_model(),
             "reasoning": messenger.get_reasoning(),
             "streaming": messenger.get_streaming(),
@@ -472,6 +474,11 @@ class Streaming(str, enum.Enum):
     ON = "on"
 
 
+class Cache(str, enum.Enum):
+    DEFAULT = "default"
+    ON = "on"
+
+
 class MessageType(str, enum.Enum):
     SYSTEM = "system"
     SETTINGS = "settings"
@@ -552,6 +559,13 @@ class FileHttpLogger(HttpLogger):
 class AiClient:
     def __init__(self):
         self.http_logger = NoOpHttpLogger()
+        self._cache_key = None
+
+    def set_cache_key(self, cache_key: typing.Optional[str]):
+        self._cache_key = cache_key
+
+    def get_cache_key(self) -> typing.Optional[str]:
+        return self._cache_key
 
     def list_models(self) -> collections.abc.Sequence[str]:
         raise NotImplementedError()
@@ -698,18 +712,12 @@ class OpenAiCompatibleClientFlavor:
         self._roles = roles
 
     def build_request_body(
-            self, model, conversation, temperature, reasoning, stream
+            self, cache_key, model, conversation, temperature, reasoning, stream
     ) -> typing.Dict:
         raise NotImplementedError()
 
     def _convert_conversation(self, conversation) -> typing.List:
-        return [
-            {
-                "role": self._roles.get(message.type, "user"),
-                "content": message.text,
-            }
-            for message in conversation
-        ]
+        raise NotImplementedError()
 
     def process_complete_response(
             self,
@@ -737,13 +745,16 @@ class OpenAiCompatibleClientFlavor:
 
 class OpenAiCompatibleClientChatFlavor(OpenAiCompatibleClientFlavor):
     def build_request_body(
-            self, model, conversation, temperature, reasoning, stream
+            self, cache_key, model, conversation, temperature, reasoning, stream
     ) -> typing.Dict:
         body = {
             "model": model,
             "messages": self._convert_conversation(conversation),
             "stream": stream,
         }
+
+        if cache_key is not None:
+            body["prompt_cache_key"] = cache_key
 
         if abs(temperature - 1.0) > 1e5:
             body["temperature"] = temperature
@@ -755,6 +766,15 @@ class OpenAiCompatibleClientChatFlavor(OpenAiCompatibleClientFlavor):
             body["reasoning_effort"] = "medium"
 
         return body
+
+    def _convert_conversation(self, conversation) -> typing.List:
+        return [
+            {
+                "role": self._roles.get(message.type, "user"),
+                "content": message.text,
+            }
+            for message in conversation
+        ]
 
     def _process_complete_response(
             self,
@@ -873,13 +893,23 @@ class OpenAiCompatibleClientChatFlavor(OpenAiCompatibleClientFlavor):
 
 class OpenAiCompatibleClientResponsesFlavor(OpenAiCompatibleClientFlavor):
     def build_request_body(
-            self, model, conversation, temperature, reasoning, stream
+            self, cache_key, model, conversation, temperature, reasoning, stream
     ) -> typing.Dict:
+        conversation = self._convert_conversation(conversation)
+
+        if cache_key is not None:
+            for message in conversation:
+                for content in message["content"]:
+                    content["prompt_cache_breakpoint"] = {"mode": "explicit"}
+
         body = {
             "model": model,
-            "input": self._convert_conversation(conversation),
+            "input": conversation,
             "stream": stream,
         }
+
+        if cache_key is not None:
+            body["prompt_cache_key"] = cache_key
 
         if abs(temperature - 1.0) > 1e5:
             body["temperature"] = temperature
@@ -891,6 +921,27 @@ class OpenAiCompatibleClientResponsesFlavor(OpenAiCompatibleClientFlavor):
             body["reasoning"] = {"effort": "medium"}
 
         return body
+
+    def _convert_conversation(self, conversation) -> typing.List:
+        return [
+            {
+                "type": "message",
+                "role": self._roles.get(message.type, "user"),
+                "content": [
+                    {
+                        "type": (
+                            "input_text"
+                            if (
+                                message.type == MessageType.SYSTEM
+                                or message.type == MessageType.USER
+                            ) else "output_text"
+                        ),
+                        "text": message.text,
+                    },
+                ],
+            }
+            for message in conversation
+        ]
 
     def _process_complete_response(
             self,
@@ -1085,7 +1136,7 @@ class OpenAiCompatibleClient(AiClient):
     def _build_request(self, model, conversation, temperature, reasoning, stream):
         headers = self._build_request_headers()
         body = self._flavor.build_request_body(
-            model, conversation, temperature, reasoning, stream
+            self._cache_key, model, conversation, temperature, reasoning, stream
         )
 
         return headers, body
@@ -1334,17 +1385,13 @@ class AnthropicClient(AiClient):
 
         return system_prompt, messages
 
-    @staticmethod
-    def _wrap_text(text: str, remaining_cached_block: int) -> typing.List:
-        if remaining_cached_block > 0:
+    def _wrap_text(self, text: str, remaining_cached_block: int) -> typing.List:
+        if self._cache_key is not None and remaining_cached_block > 0:
             wrapped_text = [
                 {
                     "type": "text",
                     "text": text,
-                    "cache_control": {
-                        "type": "ephemeral",
-                        "ttl": "1h",
-                    },
+                    "cache_control": {"type": "ephemeral"},
                 },
             ]
 
@@ -2091,6 +2138,7 @@ Expected format (omit the API keys that you don't use):
 
     settings = get_item(state, "settings", default={}, expect_type=dict)
     settings = {
+        "cache": get_item(settings, "cache", default=Cache.DEFAULT.value, expect_type=str),
         "model": get_item(settings, "model", default="", expect_type=str),
         "reasoning": get_item(settings, "reasoning", default=Reasoning.DEFAULT.value, expect_type=str),
         "streaming": get_item(settings, "streaming", default=Streaming.OFF.value, expect_type=str),
@@ -2245,14 +2293,25 @@ Available models:
         self._temperature = self.DEFAULT_TEMPERATURE
         self._reasoning = Reasoning.DEFAULT
         self._streaming = Streaming.OFF
+        self._cache = Cache.DEFAULT
 
-        self._system_prompt = str(system_prompt)
+        self._cache_key = None
+        self._system_prompt = None
+        self._set_system_prompt(str(system_prompt))
+
         self._messages = []
         self._models = self._load_models(models)
         self._sorted_models = list(sorted(self._models))
 
         self._select_default_model()
         self.init_conversation()
+
+    def _set_system_prompt(self, system_prompt: str):
+        self._system_prompt = system_prompt
+        self._cache_key = (
+            "ai-cat-"
+            + hashlib.sha256(system_prompt.encode("utf-8")).hexdigest()[:12]
+        )
 
     def _load_models(self, models):
         loaded_models = set()
@@ -2312,7 +2371,8 @@ Available models:
             self._messages.append(Message(type=MessageType.SETTINGS, text=""))
 
         self._messages[settings_idx].text = (
-            self.get_model_info() + "\n"
+            self.get_cache_info() + "\n"
+            + self.get_model_info() + "\n"
             + self.get_reasoning_info() + "\n"
             + self.get_streaming_info() + "\n"
             + self.get_temperature_info() + "\n"
@@ -2330,8 +2390,11 @@ Available models:
     def get_temperature_info(self) -> str:
         return f"Temperature: {self._temperature}"
 
+    def get_cache_info(self) -> str:
+        return f"Cache: {self._cache}"
+
     def clear(self):
-        self._system_prompt = DEFAULT_SYSTEM_PROMPT
+        self._set_system_prompt(DEFAULT_SYSTEM_PROMPT)
         self.init_conversation()
 
     def filter_models_by_prefix(
@@ -2339,6 +2402,23 @@ Available models:
             prefix: str,
     ) -> collections.abc.Sequence[str]:
         return sorted([m for m in self._models if m.startswith(prefix)])
+
+    def set_cache(self, cache: str):
+        cache_lower = cache.lower()
+
+        if cache_lower == Cache.ON.value:
+            self._cache = Cache.ON
+
+        elif cache_lower == Cache.DEFAULT.value:
+            self._cache = Cache.DEFAULT
+
+        else:
+            raise ValueError(f"Cache must be either {Cache.DEFAULT.value} or {Cache.ON.value}, got {cache!r}")
+
+        self._save_settings_in_history()
+
+    def get_cache(self) -> str:
+        return self._cache.value
 
     def set_model(self, model: str):
         if model not in self._models:
@@ -2449,7 +2529,8 @@ Available models:
         if conv_text:
             messages = self._parse_text_blocks(conv_text)
             system_prompt, *subsequent_messages = messages
-            self._system_prompt = system_prompt.text
+
+            self._set_system_prompt(system_prompt.text)
 
             yield from self._process_settings_blocks(subsequent_messages)
 
@@ -2558,7 +2639,10 @@ Available models:
                 key_lower = key.strip().lower()
                 value = value.strip()
 
-                if key_lower == "model":
+                if key_lower == "cache":
+                    self.set_cache(value)
+
+                elif key_lower == "model":
                     self.set_model(value)
 
                     yield StatusStr(self.get_model_info() + "\n")
@@ -2589,6 +2673,9 @@ Available models:
         yield StatusStr(f"Waiting for {self._provider}...")
 
         ai_client = self._ai_clients[self._provider]
+        ai_client.set_cache_key(
+            self._cache_key if self._cache == Cache.ON else None
+        )
 
         reasoning = ""
         complete_reasoning = None
@@ -2708,6 +2795,7 @@ Available models:
 
 def apply_settings(messenger: AiMessenger, settings: typing.Dict[str, typing.Any]):
     methods = {
+        "cache": (messenger.set_cache, messenger.get_cache_info),
         "model": (messenger.set_model, messenger.get_model_info),
         "reasoning": (messenger.set_reasoning, messenger.get_reasoning_info),
         "streaming": (messenger.set_streaming, messenger.get_streaming_info),
@@ -2871,6 +2959,20 @@ class AiCmd(cmd.Cmd):
             pass
 
         return super().cmdloop(*args, **kwargs)
+
+    def do_cache(self, arg):
+        "Show or toggle prompt caching. (Some AI providers use implicit caching.)"
+
+        arg = arg.strip()
+
+        if arg:
+            try:
+                self._ai_messenger.set_cache(arg)
+
+            except ValueError as err:
+                self._print_error(err)
+
+        print(self._ai_messenger.get_cache_info())
 
     def do_model(self, arg):
         "Show or set the model to be used."

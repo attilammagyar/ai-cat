@@ -180,6 +180,7 @@ Please act as a helpful AI assistant.
 
 # === Settings ===
 
+Cache: default
 Model: openai/gpt-4.1
 Reasoning: default
 Streaming: on
