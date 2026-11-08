@@ -87,6 +87,7 @@ on off mistral/mistral-small-latest
 on off moonshot/kimi-k3
 default default openai/gpt-4.1
 on off openai/gpt-5.6-luna
+default default openrouter/google/gemini-3.8-flash
 on off perplexity/sonar
 on off xai/grok-4.3
 CACHE_REASONING_MODEL

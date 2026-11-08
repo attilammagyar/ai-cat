@@ -87,6 +87,7 @@ ENV_VAR_NAMES = {
     "mistral": "MISTRAL_API_KEY",
     "moonshot": "MOONSHOT_API_KEY",
     "openai": "OPENAI_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
     "perplexity": "PERPLEXITY_API_KEY",
     "xai": "XAI_API_KEY",
 }
@@ -268,6 +269,7 @@ def main(argv):
             "mistral": MistralClient,
             "moonshot": MoonshotAiClient,
             "openai": OpenAiClient,
+            "openrouter": OpenRouterClient,
             "perplexity": PerplexityClient,
             "xai": XAiClient,
         }
@@ -1808,6 +1810,73 @@ class OpenAiClient(OpenAiCompatibleClient):
         body["store"] = False
 
         return headers, body
+
+
+class OpenRouterClient(OpenAiCompatibleClient):
+    # https://openrouter.ai/docs/quickstart
+
+    URL_CHAT = "https://openrouter.ai/api/v1/chat/completions"
+    URL_MODELS = "https://openrouter.ai/api/v1/models"
+
+    def __init__(self, api_key: str):
+        super().__init__(
+            api_key=api_key,
+            models_url=self.URL_MODELS,
+            chat_url=self.URL_CHAT,
+            status_paths=(
+                "created",
+                "finish_reason",
+                "id",
+                "model",
+                "native_finish_reason",
+                "provider",
+                "refusal",
+                "service_tier",
+                "system_fingerprint",
+                "usage.is_byok",
+                "usage.completion_tokens",
+                "usage.completion_tokens_details.reasoning_tokens",
+                "usage.cost",
+                "usage.cost_details.upstream_inference_cost",
+                "usage.cost_details.upstream_inference_prompt_cost",
+                "usage.cost_details.upstream_inference_completions_cost",
+                "usage.prompt_tokens",
+                "usage.prompt_tokens_details.cached_tokens",
+                "usage.prompt_tokens_details.cache_write_tokens",
+                "usage.total_tokens",
+            ),
+            roles={
+                MessageType.SYSTEM: "system",
+            },
+        )
+
+    def _build_request(self, model, conversation, temperature, reasoning, stream):
+        headers, body = super()._build_request(
+            model, conversation, temperature, Reasoning.DEFAULT, stream
+        )
+
+        if reasoning == Reasoning.OFF:
+            body["reasoning"] = {"type": "disabled", "effort": "none"}
+            body["reasoning_effort"] = "none"
+
+        elif reasoning == Reasoning.ON:
+            body["reasoning"] = {"type": "enabled", "effort": "high"}
+            body["reasoning_effort"] = "high"
+
+        return headers, body
+
+    def list_models_raw(self) -> collections.abc.Sequence[collections.abc.Mapping]:
+        raw_response = self.http_request(
+            "GET",
+            self._models_url,
+            headers=self._build_request_headers(),
+        )
+        response = json.loads(raw_response)
+
+        return [
+            model
+            for model in get_item(response, "data", [])
+        ]
 
 
 class PerplexityClient(AiClient):
