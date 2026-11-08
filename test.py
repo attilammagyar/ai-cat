@@ -288,6 +288,7 @@ What is The Answer?
 
 Cache: default
 Model: fake/model1
+Notes: on
 Reasoning: default
 Streaming: off
 Temperature: {ai_cat.AiMessenger.DEFAULT_TEMPERATURE}
@@ -321,6 +322,7 @@ Temperature: {ai_cat.AiMessenger.DEFAULT_TEMPERATURE}
 
 Cache: default
 Model: fake/model2
+Notes: on
 Reasoning: on
 Streaming: off
 Temperature: 2.0
@@ -841,6 +843,7 @@ What is The Answer?
 
 Cache: default
 Model: fake/model2
+Notes: on
 Reasoning: off
 Streaming: off
 Temperature: 2.0
@@ -853,7 +856,7 @@ Temperature: 2.0
 """
         self.assertEqual(expected_conversation, ai_messenger.conversation_to_str())
 
-    def test_when_the_edited_conversation_lacks_a_user_prompt_when_conversation_is_reset(self):
+    def test_when_the_edited_conversation_lacks_a_user_prompt_then_the_conversation_is_reset(self):
         edited_conversation = """\
 # === System ===
 
@@ -891,6 +894,7 @@ Custom system prompt.
 
 Cache: on
 Model: fake/model2
+Notes: on
 Reasoning: off
 Streaming: off
 Temperature: 2.0
@@ -1159,6 +1163,7 @@ Status info here.
 
 Cache: default
 Model: fake/model2
+Notes: on
 Reasoning: on
 Streaming: on
 Temperature: 2.0
@@ -1170,6 +1175,7 @@ Temperature: 2.0
 
 Cache: default
 Model: fake/model1
+Notes: on
 Reasoning: on
 Streaming: on
 Temperature: 2.0
@@ -1181,6 +1187,7 @@ Temperature: 2.0
 
 Cache: default
 Model: fake/model1
+Notes: on
 Reasoning: off
 Streaming: on
 Temperature: 2.0
@@ -1192,6 +1199,7 @@ Temperature: 2.0
 
 Cache: default
 Model: fake/model1
+Notes: on
 Reasoning: off
 Streaming: off
 Temperature: 2.0
@@ -1203,6 +1211,7 @@ Temperature: 2.0
 
 Cache: default
 Model: fake/model1
+Notes: on
 Reasoning: off
 Streaming: off
 Temperature: 0.0
@@ -1324,6 +1333,76 @@ AI 3
             ai_client.conversation,
         )
         self.assertEqual(expected_conversation, ai_messenger.conversation_to_str())
+
+    def test_when_notes_block_is_turned_off_then_it_is_omitted_from_the_conversation(self):
+        edited_conversation = """\
+# === System ===
+
+Please act as a helpful AI assistant.
+
+# === Settings ===
+
+Notes: off
+
+# === User ===
+
+What is The Answer?
+
+"""
+
+        ai_messenger, ai_client, response_chunks = self.ask(
+            edited_conversation,
+            [
+                [
+                    ai_cat.AiResponse(is_delta=False, is_reasoning=False, is_status=False, text="42."),
+                ],
+            ],
+        )
+
+        expected_conversation = f"""\
+# === System ===
+
+Please act as a helpful AI assistant.
+
+
+# === Settings ===
+
+Notes: off
+
+
+# === User ===
+
+What is The Answer?
+
+
+# === AI ===
+
+42.
+"""
+        self.assertEqual(
+            [
+                "Notes: off\n",
+                "Waiting for fake...",
+                "\n\n# === AI ===\n\n",
+                "42.",
+                "\n",
+            ],
+            response_chunks,
+        )
+        self.assertEqual(expected_conversation, ai_messenger.conversation_to_str())
+        self.assertEqual("model1", ai_client.model)
+        self.assertEqual(ai_cat.AiMessenger.DEFAULT_TEMPERATURE, ai_client.temperature)
+        self.assertEqual(
+            [
+                ai_cat.Message(
+                    type=ai_cat.MessageType.SYSTEM,
+                    text="Please act as a helpful AI assistant.",
+                ),
+                ai_cat.Message(type=ai_cat.MessageType.USER, text="What is The Answer?"),
+            ],
+            ai_client.conversation,
+        )
+
 
 
 class FakeAiClient(ai_cat.AiClient):

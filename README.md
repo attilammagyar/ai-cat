@@ -185,6 +185,7 @@ Please act as a helpful AI assistant.
 
 Cache: default
 Model: openai/gpt-4.1
+Notes: on
 Reasoning: default
 Streaming: on
 Temperature: 1.0
@@ -217,7 +218,7 @@ When the last block in a conversation is a `User` block, then `ai-cat.py` will
 send the conversation to the selected LLM and generate a response for it.
 
 If the optional `Settings` block or any of the settings in it are omitted, then
-the values from the last `ai-cat.py` interaction are used. Subsequent `Setting`
+the values from the last `ai-cat.py` run are used. Subsequent `Settings`
 blocks and settings overwrite each other.
 
 `ai-cat.py` also adds additional information blocks to the conversation:

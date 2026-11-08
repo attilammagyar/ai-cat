@@ -62,6 +62,7 @@ Please respond as a helpful AI assistant.
 Cache: $cache
 Reasoning: $reasoning
 Model: $model
+Notes: off
 Streaming: off
 Temperature: 1.0
 

@@ -315,6 +315,7 @@ def main(argv):
         settings = {
             "cache": messenger.get_cache(),
             "model": messenger.get_model(),
+            "notes": messenger.get_notes(),
             "reasoning": messenger.get_reasoning(),
             "streaming": messenger.get_streaming(),
             "temperature": messenger.get_temperature(),
@@ -481,6 +482,11 @@ class Streaming(str, enum.Enum):
 class Cache(str, enum.Enum):
     DEFAULT = "default"
     ON = "on"
+
+
+class Notes(str, enum.Enum):
+    ON = "on"
+    OFF = "off"
 
 
 class MessageType(str, enum.Enum):
@@ -2189,6 +2195,7 @@ Expected format (omit the API keys that you don't use):
     settings = {
         "cache": get_item(settings, "cache", default=Cache.DEFAULT.value, expect_type=str),
         "model": get_item(settings, "model", default="", expect_type=str),
+        "notes": get_item(settings, "notes", default=Notes.ON, expect_type=str),
         "reasoning": get_item(settings, "reasoning", default=Reasoning.DEFAULT.value, expect_type=str),
         "streaming": get_item(settings, "streaming", default=Streaming.OFF.value, expect_type=str),
         "temperature": float(get_item(settings, "temperature", default=1.0, expect_type=(int, float))),
@@ -2303,7 +2310,6 @@ class StatusStr(str):
 class AiMessenger:
     DEFAULT_TEMPERATURE = 1.0
 
-
     NOTES_HEADER = """\
 # === Notes ===
 
@@ -2343,6 +2349,7 @@ Available models:
         self._reasoning = Reasoning.DEFAULT
         self._streaming = Streaming.OFF
         self._cache = Cache.DEFAULT
+        self._notes = Notes.ON
 
         self._cache_key = None
         self._system_prompt = None
@@ -2422,6 +2429,7 @@ Available models:
         self._messages[settings_idx].text = (
             self.get_cache_info() + "\n"
             + self.get_model_info() + "\n"
+            + self.get_notes_info() + "\n"
             + self.get_reasoning_info() + "\n"
             + self.get_streaming_info() + "\n"
             + self.get_temperature_info() + "\n"
@@ -2441,6 +2449,9 @@ Available models:
 
     def get_cache_info(self) -> str:
         return f"Cache: {self._cache}"
+
+    def get_notes_info(self) -> str:
+        return f"Notes: {self._notes}"
 
     def clear(self):
         self._set_system_prompt(DEFAULT_SYSTEM_PROMPT)
@@ -2481,6 +2492,23 @@ Available models:
 
     def get_model(self) -> str:
         return f"{self._provider}/{self._model}"
+
+    def set_notes(self, notes: str):
+        notes_lower = notes.lower()
+
+        if notes_lower == Notes.ON.value:
+            self._notes = Notes.ON
+
+        elif notes_lower == Notes.OFF.value:
+            self._notes = Notes.OFF
+
+        else:
+            raise ValueError(f"Notes must be either {Notes.ON.value} or {Notes.OFF.value}, got {notes!r}")
+
+        self._save_settings_in_history()
+
+    def get_notes(self) -> str:
+        return self._notes.value
 
     def set_reasoning(self, reasoning: str):
         reasoning_lower = reasoning.lower()
@@ -2544,13 +2572,18 @@ Available models:
             MessageType.AI_STATUS: "AI Status",
         }
 
-        notes = self.NOTES_HEADER
+        beginning = []
 
-        for model in self._sorted_models:
-            notes += " * " + model + "\n"
+        if self._notes == Notes.ON:
+            notes = self.NOTES_HEADER
+
+            for model in self._sorted_models:
+                notes += " * " + model + "\n"
+
+            beginning.append(notes[:-1])
 
         blocks = (
-            [notes[:-1]]
+            beginning
             + [
                 f"# === {block_types[msg.type]} ===\n\n{msg.text}\n"
                 for msg in self._messages
@@ -2695,6 +2728,11 @@ Available models:
                     self.set_model(value)
 
                     yield StatusStr(self.get_model_info() + "\n")
+
+                elif key_lower == "notes":
+                    self.set_notes(value)
+
+                    yield StatusStr(self.get_notes_info() + "\n")
 
                 elif key_lower == "reasoning":
                     self.set_reasoning(value)
@@ -2846,6 +2884,7 @@ def apply_settings(messenger: AiMessenger, settings: typing.Dict[str, typing.Any
     methods = {
         "cache": (messenger.set_cache, messenger.get_cache_info),
         "model": (messenger.set_model, messenger.get_model_info),
+        "notes": (messenger.set_notes, messenger.get_notes_info),
         "reasoning": (messenger.set_reasoning, messenger.get_reasoning_info),
         "streaming": (messenger.set_streaming, messenger.get_streaming_info),
         "temperature": (messenger.set_temperature, messenger.get_temperature_info),
@@ -3047,6 +3086,25 @@ class AiCmd(cmd.Cmd):
         "Show all available models."
 
         print(os.linesep.join(self._ai_messenger.filter_models_by_prefix("")))
+
+    def do_notes(self, arg):
+        "Turn notes on or off."
+
+        arg = arg.strip()
+
+        if arg:
+            try:
+                self._ai_messenger.set_notes(arg)
+
+            except ValueError as err:
+                self._print_error(err)
+
+        print(self._ai_messenger.get_notes_info())
+
+    def complete_notes(self, text, line, begidx, endidx):
+        options = [Notes.ON, Notes.OFF]
+
+        return [o for o in options if o.value.startswith(text.strip())]
 
     def do_reasoning(self, arg):
         "Turn reasoning on or off, or use the default behavior of the model. (Ignored for some providers.)"
