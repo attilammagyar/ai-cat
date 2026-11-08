@@ -83,6 +83,7 @@ on off anthropic/claude-haiku-4-5-20251001
 on off deepseek/deepseek-flash
 on off google/gemini-2.5-flash
 on off mistral/mistral-small-latest
+on off moonshot/kimi-k3
 default default openai/gpt-4.1
 on off openai/gpt-5.6-luna
 on off perplexity/sonar

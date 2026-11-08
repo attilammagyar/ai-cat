@@ -99,6 +99,7 @@ Features
     * [DeepSeek](https://www.deepseek.com/en),
     * [Google (Gemini)](https://gemini.google.com/),
     * [Mistral AI](https://mistral.ai/),
+    * [Moonshot AI](https://www.moonshot.ai/),
     * [OpenAI (ChatGTP)](https://openai.com/),
     * [Perplexity (Sonar)](https://www.perplexity.ai/),
     * and [xAI (Grok)](https://x.ai/).
@@ -125,6 +126,7 @@ supported AI providers, and save it in `~/.ai-cat` (or
     "deepseek": "DeepSeek R1 API key here (https://platform.deepseek.com/api_keys)",
     "google": "Google Gemini API key here (https://aistudio.google.com/apikey)",
     "mistral": "Mistral AI API key here (https://admin.mistral.ai/organization/api-keys)",
+    "moonshot": "Moonshot AI API key here (https://platform.kimi.ai/console/api-keys)",
     "openai": "OpenAI ChatGPT API key here (https://platform.openai.com/settings/organization/api-keys)",
     "perplexity": "Perplexity API key here (https://www.perplexity.ai/account/api/keys)",
     "xai": "xAI API key here (https://console.x.ai/team/default/api-keys)"
@@ -141,6 +143,7 @@ keys via the following environment variables as well:
  * `DEEPSEEK_API_KEY`,
  * `GEMINI_API_KEY`,
  * `MISTRAL_API_KEY`,
+ * `MOONSHOT_API_KEY`,
  * `OPENAI_API_KEY`,
  * `PERPLEXITY_API_KEY`,
  * `XAI_API_KEY`.

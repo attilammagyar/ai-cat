@@ -85,6 +85,7 @@ ENV_VAR_NAMES = {
     "deepseek": "DEEPSEEK_API_KEY",
     "google": "GEMINI_API_KEY",
     "mistral": "MISTRAL_API_KEY",
+    "moonshot": "MOONSHOT_API_KEY",
     "openai": "OPENAI_API_KEY",
     "perplexity": "PERPLEXITY_API_KEY",
     "xai": "XAI_API_KEY",
@@ -98,6 +99,8 @@ DEFAULT_MODEL_RE = (
     re.compile(r"^perplexity/sonar.*$"),
     re.compile(r"^perplexity/sonar-pro$"),
     re.compile(r"^perplexity/sonar-reasoning-pro$"),
+    re.compile(r"^moonshot/kimi.*$"),
+    re.compile(r"^moonshot/kimi.*pro$"),
     re.compile(r"^mistral/mistral-small-latest$"),
     re.compile(r"^mistral/mistral-medium-latest$"),
     re.compile(r"^mistral/mistral-large-latest$"),
@@ -263,6 +266,7 @@ def main(argv):
             "deepseek": DeepSeekClient,
             "google": GoogleClient,
             "mistral": MistralClient,
+            "moonshot": MoonshotAiClient,
             "openai": OpenAiClient,
             "perplexity": PerplexityClient,
             "xai": XAiClient,
@@ -1699,6 +1703,49 @@ class MistralClient(OpenAiCompatibleClient):
             body["reasoning_effort"] = "none"
 
         elif reasoning == Reasoning.ON:
+            body["reasoning_effort"] = "high"
+
+        return headers, body
+
+
+class MoonshotAiClient(OpenAiCompatibleClient):
+    # https://platform.kimi.ai/docs/get-your-api-key
+
+    URL_CHAT = "https://api.moonshot.ai/v1/chat/completions"
+    URL_MODELS = "https://api.moonshot.ai/v1/models"
+
+    def __init__(self, api_key: str):
+        super().__init__(
+            api_key=api_key,
+            models_url=self.URL_MODELS,
+            chat_url=self.URL_CHAT,
+            status_paths=(
+                "created",
+                "finish_reason",
+                "id",
+                "model",
+                "usage.completion_tokens",
+                "usage.completion_tokens_details.reasoning_tokens",
+                "usage.prompt_tokens",
+                "usage.prompt_tokens_details.cached_tokens",
+                "usage.prompt_tokens_details.cache_write_tokens",
+                "usage.total_tokens",
+            ),
+            roles={
+                MessageType.SYSTEM: "system",
+            },
+        )
+
+    def _build_request(self, model, conversation, temperature, reasoning, stream):
+        headers, body = super()._build_request(
+            model, conversation, temperature, Reasoning.DEFAULT, stream
+        )
+
+        if reasoning == Reasoning.OFF:
+            body["thinking"] = {"type": "disabled"}
+
+        elif reasoning == Reasoning.ON:
+            body["thinking"] = {"type": "enabled"}
             body["reasoning_effort"] = "high"
 
         return headers, body
