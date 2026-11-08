@@ -2151,6 +2151,8 @@ Expected format (omit the API keys that you don't use):
     "anthropic": "Anthropic Claude API key here (https://console.anthropic.com/settings/keys)",
     "deepseek": "DeepSeek R1 API key here (https://platform.deepseek.com/api_keys)",
     "google": "Google Gemini API key here (https://aistudio.google.com/apikey)",
+    "mistral": "Mistral AI API key here (https://admin.mistral.ai/organization/api-keys)",
+    "moonshot": "Moonshot AI API key here (https://platform.kimi.ai/console/api-keys)",
     "openai": "OpenAI ChatGPT API key here (https://platform.openai.com/settings/organization/api-keys)",
     "perplexity": "Perplexity API key here (https://www.perplexity.ai/account/api/keys)",
     "xai": "xAI API key here (https://console.x.ai/team/default/api-keys)"
