@@ -80,7 +80,7 @@ Thanks. Now repeat that but talk like a pirate.
 CONV
     done <<CACHE_REASONING_MODEL
 on off anthropic/claude-haiku-4-5-20251001
-on off deepseek/deepseek-v4-flash
+on off deepseek/deepseek-flash
 on off google/gemini-2.5-flash
 on off mistral/mistral-small-latest
 default default openai/gpt-4.1
