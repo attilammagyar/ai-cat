@@ -60,8 +60,8 @@ Please respond as a helpful AI assistant.
 # === Settings ===
 
 Cache: $cache
-Model: $model
 Reasoning: $reasoning
+Model: $model
 Streaming: off
 Temperature: 1.0
 
@@ -78,7 +78,7 @@ Because it's a giant dome and blue paint happened to be cheap when it was built.
 Thanks. Now repeat that but talk like a pirate.
 
 CONV
-    done <<MODELS
+    done <<CACHE_REASONING_MODEL
 on off anthropic/claude-haiku-4-5-20251001
 on off deepseek/deepseek-v4-flash
 on off google/gemini-2.5-flash
@@ -87,7 +87,7 @@ default default openai/gpt-4.1
 on off openai/gpt-5.6-luna
 on off perplexity/sonar
 on off xai/grok-4.3
-MODELS
+CACHE_REASONING_MODEL
 }
 
 main "$@"
