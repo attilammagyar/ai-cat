@@ -2526,6 +2526,12 @@ Available models:
         self._set_system_prompt(DEFAULT_SYSTEM_PROMPT)
         self.init_conversation()
 
+    def filter_models_by_infix(
+            self,
+            infix: str,
+    ) -> collections.abc.Sequence[str]:
+        return sorted([m for m in self._models if infix in m])
+
     def filter_models_by_prefix(
             self,
             prefix: str,
@@ -3152,9 +3158,11 @@ class AiCmd(cmd.Cmd):
         return self._ai_messenger.filter_models_by_prefix(text)
 
     def do_models(self, arg):
-        "Show all available models."
+        "Show all available models. Optionally, filter model list by substring."
 
-        print(os.linesep.join(self._ai_messenger.filter_models_by_prefix("")))
+        arg = arg.strip()
+
+        print(os.linesep.join(self._ai_messenger.filter_models_by_infix(arg)))
 
     def do_notes(self, arg):
         "Turn notes on or off."

@@ -132,6 +132,19 @@ And what is The Answer?"""
 
         return (ai_messenger, ai_client, response_chunks)
 
+    def test_filter_models_by_infix(self):
+        ai_messenger = self.create_messenger()[0]
+
+        self.assertEqual([], ai_messenger.filter_models_by_infix("bake"))
+        self.assertEqual(
+            ["fake/model1"],
+            ai_messenger.filter_models_by_infix("el1")
+        )
+        self.assertEqual(
+            ["fake/model1", "fake/model2"],
+            ai_messenger.filter_models_by_infix("ake/model")
+        )
+
     def test_filter_models_by_prefix(self):
         ai_messenger = self.create_messenger()[0]
 
